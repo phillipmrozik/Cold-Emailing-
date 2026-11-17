@@ -1,0 +1,3539 @@
+{
+  "name": "Cold Mail AI — Silnik researchu",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 */10 15-23 * * 1-5"
+            },
+            {
+              "field": "cronExpression",
+              "expression": "0 0 15-23 * * 0,6"
+            },
+            {
+              "field": "cronExpression",
+              "expression": "0 0 0-5 * * *"
+            }
+          ]
+        }
+      },
+      "id": "f7c08a9e-28d6-42ef-9877-65c544cea9b3",
+      "name": "Research: pn–pt co 10 min (15–24), noce i weekendy co godz.",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_ustawienia",
+          "cachedResultName": "cm_ustawienia"
+        },
+        "returnAll": true
+      },
+      "id": "f77bc0df-e1ec-4a5e-8d35-efc215f56fc0",
+      "name": "Pobierz ustawienia",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        192
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {},
+      "id": "4ec05c88-2d64-4130-babf-487b846dea15",
+      "name": "Uruchom ręcznie",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_kampanie",
+          "cachedResultName": "cm_kampanie"
+        },
+        "returnAll": true
+      },
+      "id": "80faa388-deaf-4bd5-bf37-ecb871fd28db",
+      "name": "Pobierz kampanie",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        192
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "status",
+              "keyValue": "nowa"
+            },
+            {
+              "keyName": "status",
+              "keyValue": "w_researchu"
+            },
+            {
+              "keyName": "status",
+              "keyValue": "gotowa"
+            },
+            {
+              "keyName": "status",
+              "keyValue": "sprawdz_pozniej"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "id": "05f8181b-b4fa-49e2-b275-39d2699d00bc",
+      "name": "Pobierz firmy w kolejce",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        192
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const wiersze = function (n) { return $(n).all().map(function (i) { return i.json; }).filter(function (r) { return r && r.id; }); };\nconst ust = {};\nwiersze('Pobierz ustawienia').forEach(function (r) { ust[r.klucz] = r.wartosc; });\nconst teraz = DateTime.now();\nconst kampanie = wiersze('Pobierz kampanie');\nconst firmy = wiersze('Pobierz firmy w kolejce');\nconst plan = { akcja: 'nic', kampania: null, firma: null, kampanieZmiany: [], firmyZmiany: [], powod: '' };\nif (ust.system_wstrzymany === 'tak') { plan.powod = 'system wstrzymany'; return [{ json: plan }]; }\nconst data = function (v) { return v ? DateTime.fromISO(String(v)) : null; };\nconst aktywne = [];\nkampanie.forEach(function (k) {\n  if (k.status !== 'aktywna') return;\n  const koniec = data(k.data_koniec);\n  if (koniec && koniec < teraz) { plan.kampanieZmiany.push({ kampania_id: k.kampania_id, status: 'zakonczona', powiadom: 'Kampania „' + k.branza + ' · ' + k.miasto + '” zakończyła się zgodnie z planem.' }); return; }\n  aktywne.push(k);\n});\nconst dozwolone = {};\nkampanie.forEach(function (k) { if (k.status === 'aktywna' || k.status === 'wyczerpana') dozwolone[k.kampania_id] = true; });\nplan.kampanieZmiany.forEach(function (z) { delete dozwolone[z.kampania_id]; });\nfirmy.forEach(function (f) {\n  if (f.status === 'w_researchu') {\n    const blok = data(f.zablokowano);\n    if (!blok || blok < teraz.minus({ minutes: 30 })) plan.firmyZmiany.push({ id: f.id, status: (f.proby || 0) >= 3 ? 'odrzucona' : 'nowa', powod: (f.proby || 0) >= 3 ? 'powtarzające się błędy techniczne' : '' });\n  }\n  if (f.status === 'sprawdz_pozniej') {\n    const kiedy = data(f.data_nastepnego);\n    if (!kiedy || kiedy <= teraz) plan.firmyZmiany.push({ id: f.id, status: 'nowa', powod: '' });\n  }\n  if (f.status === 'nowa' && (f.proby || 0) >= 3) plan.firmyZmiany.push({ id: f.id, status: 'odrzucona', powod: 'powtarzające się błędy techniczne' });\n});\nconst zmienione = {};\nplan.firmyZmiany.forEach(function (z) { zmienione[z.id] = true; });\nconst nowe = firmy.filter(function (f) { return f.status === 'nowa' && !zmienione[f.id] && dozwolone[f.kampania_id]; }).sort(function (a, b) { return ((a.strona ? 0 : 1) - (b.strona ? 0 : 1)) || (a.id - b.id); });\nconst limitDomyslny = parseInt(ust.limit_dzienny || '30', 10);\nconst dniBufora = parseInt(ust.bufor_dni || '3', 10);\naktywne.forEach(function (k) {\n  let warianty = [];\n  try { warianty = JSON.parse(k.warianty || '[]'); } catch (e) { warianty = []; }\n  k._wariantow = warianty.length;\n  k._mozeSzukac = (k.wariant_idx || 0) < warianty.length || !k.osm_pobrane;\n  const jejNowe = firmy.filter(function (f) { return f.kampania_id === k.kampania_id && (f.status === 'nowa' || f.status === 'w_researchu'); }).length;\n  if (!k._mozeSzukac && jejNowe === 0) plan.kampanieZmiany.push({ kampania_id: k.kampania_id, status: 'wyczerpana', powiadom: 'Kampania „' + k.branza + ' · ' + k.miasto + '”: system sprawdził już wszystkie firmy, które dało się znaleźć. Gotowe maile nadal będą wysyłane. Warto uruchomić nową kampanię.' });\n});\nconst kandydaci = kampanie.filter(function (k) { return dozwolone[k.kampania_id]; }).map(function (k) {\n  const akt = aktywne.filter(function (a) { return a.kampania_id === k.kampania_id; })[0] || null;\n  const lim = parseInt(k.limit_dzienny, 10) || limitDomyslny;\n  const gotoweK = firmy.filter(function (f) { return f.kampania_id === k.kampania_id && f.status === 'gotowa'; }).length;\n  const noweK = nowe.filter(function (f) { return f.kampania_id === k.kampania_id; });\n  const ost = data(k.ostatnie_szukanie);\n  const mozeSzukac = !!akt && akt._mozeSzukac && (!ost || ost < teraz.minus({ minutes: 4 }));\n  return { kampania: akt || k, lim: lim, gotowe: gotoweK, nowe: noweK, mozeSzukac: mozeSzukac, zapas: gotoweK / lim };\n}).filter(function (c) { return c.gotowe < c.lim * dniBufora && (c.nowe.length || c.mozeSzukac); }).sort(function (a, b) { return a.zapas - b.zapas; });\nif (!kandydaci.length) { plan.powod = 'zapas gotowych maili wystarczy albo brak firm do sprawdzenia'; return [{ json: plan }]; }\nconst wybrana = kandydaci[0];\nif (wybrana.nowe.filter(function (f) { return !!f.strona; }).length < 5 && wybrana.mozeSzukac) {\n  plan.akcja = 'szukaj';\n  plan.kampania = wybrana.kampania;\n} else if (wybrana.nowe.length) {\n  plan.akcja = 'research';\n  plan.firma = wybrana.nowe[0];\n} else {\n  plan.akcja = 'szukaj';\n  plan.kampania = wybrana.kampania;\n}\nreturn [{ json: plan }];"
+      },
+      "id": "d4b9b67a-87c9-4a83-8872-d79f8880f257",
+      "name": "Zaplanuj przebieg",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return ($input.first().json.kampanieZmiany || []).map(function (z) { return { json: z }; });"
+      },
+      "id": "a77a670a-98db-4d89-a922-043239720526",
+      "name": "Porządki: kampanie",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_kampanie",
+          "cachedResultName": "cm_kampanie"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "kampania_id",
+              "keyValue": "={{ $json.kampania_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "={{ $json.status }}"
+          },
+          "schema": [
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "94b316d6-ba08-4038-83f8-d3cc687ffcd5",
+      "name": "Zmień status kampanii",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1344,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "TWOJ_TELEGRAM_CHAT_ID",
+        "text": "={{ 'ℹ️ ' + String($('Porządki: kampanie').item.json.powiadom).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "3379e60d-4898-4014-aba4-c62282309822",
+      "name": "Telegram: zmiana kampanii",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1568,
+        0
+      ],
+      "webhookId": "29071019-c02c-48c6-bd17-cc9a496cec81",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Pain Radar Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return ($input.first().json.firmyZmiany || []).map(function (z) { return { json: z }; });"
+      },
+      "id": "73d27ec7-44e8-495e-9454-814056324778",
+      "name": "Porządki: firmy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{ $json.id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "={{ $json.status }}",
+            "powod": "={{ $json.powod }}"
+          },
+          "schema": [
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "powod",
+              "displayName": "powod",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "13805b20-364d-428e-a862-7869f905b683",
+      "name": "Odblokuj lub odrzuć firmę",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1344,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.akcja }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "szukaj"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.akcja }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "research"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e3ac1177-77b9-4647-bf72-fad51971c496",
+      "name": "Co robimy teraz?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1120,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const k = $input.first().json.kampania;\nlet warianty = [];\ntry { warianty = JSON.parse(k.warianty || '[]'); } catch (e) { warianty = []; }\nlet tagi = [];\ntry { tagi = JSON.parse(k.osm_tagi || '[]'); } catch (e) { tagi = []; }\nconst idx = k.wariant_idx || 0;\nif (idx < warianty.length) {\n  return [{ json: { zrodlo: 'google', kampania: k, fraza: warianty[idx], aktualizacja: { wariant_idx: idx + 1, osm_pobrane: !!k.osm_pobrane },\n    zapytanie: { textQuery: warianty[idx] + ' ' + k.miasto, languageCode: 'pl', regionCode: 'PL', pageSize: 20 } } }];\n}\nconst miasto = String(k.miasto).replace(/\"/g, '');\nconst czesci = tagi.map(function (t) { const p = String(t).split('='); return 'nwr(area.a)[\"' + p[0] + '\"=\"' + p[1] + '\"];'; }).join('');\nconst overpass = '[out:json][timeout:80];area[\"name\"=\"' + miasto + '\"][\"boundary\"=\"administrative\"]->.a;(' + czesci + ');out tags center 400;';\nreturn [{ json: { zrodlo: 'osm', kampania: k, fraza: tagi.join(', '), aktualizacja: { wariant_idx: idx, osm_pobrane: true }, overpass: overpass } }];"
+      },
+      "id": "599cd907-be04-4700-951e-45bcead4ce2f",
+      "name": "Przygotuj szukanie",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $input.first().json;\nconst kampanie = $('Pobierz kampanie').all().map(function (i) { return i.json; });\nconst k = kampanie.find(function (x) { return x.kampania_id === p.firma.kampania_id; }) || {};\nlet bolaczki = [];\ntry { bolaczki = JSON.parse(k.bolaczki_branzy || '[]'); } catch (e) { bolaczki = []; }\nconst f = p.firma;\nlet strona = String(f.strona || '').trim();\nif (strona && !/^https?:\\/\\//i.test(strona)) strona = 'https://' + strona.replace(/^\\/+/, '');\nconst mh = strona.match(/^https?:\\/\\/([^\\/?#:]+)/i);\nconst host = mh ? mh[1].toLowerCase().replace(/^www\\./, '') : '';\nif (!host) strona = '';\nreturn [{ json: { firma: f, kampania: { kampania_id: k.kampania_id, miasto: k.miasto, branza: k.branza, bolaczki: bolaczki }, strona: strona, host: host, ma_strone: !!strona } }];"
+      },
+      "id": "fac2b305-312d-4a1f-9c0a-25f283037db1",
+      "name": "Wybrana firma",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        944
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_kampanie",
+          "cachedResultName": "cm_kampanie"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "kampania_id",
+              "keyValue": "={{ $json.kampania.kampania_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "wariant_idx": "={{ $json.aktualizacja.wariant_idx }}",
+            "osm_pobrane": "={{ $json.aktualizacja.osm_pobrane }}",
+            "ostatnie_szukanie": "={{ $now.toISO() }}"
+          },
+          "schema": [
+            {
+              "id": "wariant_idx",
+              "displayName": "wariant_idx",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "osm_pobrane",
+              "displayName": "osm_pobrane",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ostatnie_szukanie",
+              "displayName": "ostatnie_szukanie",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a7280897-118f-4b68-9c82-39e858b43368",
+      "name": "Zapisz postęp szukania",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1568,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.zrodlo }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "google"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e8231ecb-fdf5-47a4-a629-939bcc5f4398",
+      "name": "Google czy OpenStreetMap?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1568,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://places.googleapis.com/v1/places:searchText",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Goog-FieldMask",
+              "value": "places.id,places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.websiteUri,places.rating,places.userRatingCount,places.businessStatus,nextPageToken"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.zapytanie }}",
+        "options": {
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "body",
+                    "name": "pageToken",
+                    "value": "={{ $response.body.nextPageToken }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.nextPageToken }}",
+              "limitPagesFetched": true,
+              "maxRequests": 3,
+              "requestInterval": 1500
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "b818dd5a-f380-40d6-a669-fe05b5c2124e",
+      "name": "Google Maps: szukaj firm",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1792,
+        384
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Google Place Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const p0 = $('Przygotuj szukanie').first().json;\nconst wynik = [];\n$input.all().forEach(function (i) {\n  (i.json.places || []).forEach(function (p) {\n    if (p.businessStatus && p.businessStatus !== 'OPERATIONAL') return;\n    wynik.push({ json: {\n      place_id: p.id, zrodlo: 'google', nazwa: (p.displayName || {}).text || '', adres: p.formattedAddress || '',\n      telefon: p.nationalPhoneNumber || '', strona: p.websiteUri || '', ocena_google: p.rating || 0, liczba_opinii: p.userRatingCount || 0,\n      email: '', email_zrodlo: '', kampania_id: p0.kampania.kampania_id, miasto: p0.kampania.miasto, branza: p0.kampania.branza\n    } });\n  });\n});\nreturn wynik;"
+      },
+      "id": "8637cf87-3815-4c7f-9d19-5aa66f1eb1ca",
+      "name": "Ujednolić wyniki Google",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://overpass-api.de/api/interpreter",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "MrozikDigital-ColdMail/1.0 (mrozikdigital@gmail.com)"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "data",
+              "value": "={{ $json.overpass }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 100000
+        }
+      },
+      "id": "ddc6dbfe-f6fc-41e1-a485-b5e35fca019e",
+      "name": "OpenStreetMap: szukaj firm",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1792,
+        576
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 10000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const p0 = $('Przygotuj szukanie').first().json;\nconst wynik = [];\n($input.first().json.elements || []).forEach(function (e) {\n  const t = e.tags || {};\n  if (!t.name) return;\n  const adres = [t['addr:street'] || t['addr:place'] || '', t['addr:housenumber'] || ''].join(' ').trim() + (t['addr:city'] ? ', ' + t['addr:city'] : '');\n  const email = String(t.email || t['contact:email'] || '').split(';')[0].trim().toLowerCase();\n  wynik.push({ json: {\n    place_id: 'osm:' + e.type + ':' + e.id, zrodlo: 'osm', nazwa: t.name, adres: adres,\n    telefon: t.phone || t['contact:phone'] || t.mobile || '', strona: t.website || t['contact:website'] || '', ocena_google: 0, liczba_opinii: 0,\n    email: email, email_zrodlo: email ? 'osm' : '', kampania_id: p0.kampania.kampania_id, miasto: p0.kampania.miasto, branza: p0.kampania.branza\n  } });\n});\nreturn wynik;"
+      },
+      "id": "8fbee357-d60f-44bb-ba8b-50e003ca6585",
+      "name": "Ujednolić wyniki OpenStreetMap",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const PLATFORMY = ['booksy.','moment.pl','momentapp','versum.','fresha.','znanylekarz.','docplanner','panoramafirm.','pkt.pl','aleo.com','oferteo.','fixly.','facebook.com','fb.com','instagram.com','wixsite.com','business.site','linktr.ee','olx.pl','google.com','goo.gl','g.page','infakt.pl','tiktok.com','youtube.com','allegro.pl','gowork.pl','firmy.net','cylex','zumi.pl'];\nconst SIECI = ['infakt','orlen','biedronka','lidl','żabka','zabka','rossmann','pko','ing bank','santander','mbank','pekao','poczta polska','inpost','dhl','ups ','fedex','dpd','euromaster','bosch car service','norauto','mcdonald','kfc','pizza hut','vision express','synevo','diagnostyka','luxmed','lux med','medicover','enel-med','orange','play ','plus ','t-mobile','castorama','leroy','obi ','media expert','rtv euro'];\nconst bezPl = function (t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ł/g, 'l'); };\nconst domena = function (u) {\n  const m = String(u || '').trim().match(/^(?:[a-z]+:)?\\/\\/([^\\/?#:]+)/i) || String(u || '').trim().match(/^([^\\/?#:\\s]+\\.[a-z]{2,})/i);\n  return m ? m[1].toLowerCase().replace(/^www\\./, '') : '';\n};\nconst widziane = {};\nconst wynik = [];\n$input.all().forEach(function (i) {\n  const f = Object.assign({}, i.json);\n  if (!f.nazwa || !f.place_id) return;\n  const nazwa = bezPl(f.nazwa);\n  if (SIECI.some(function (s) { return nazwa.indexOf(s) !== -1; })) return;\n  if (f.zrodlo === 'google' && f.adres && bezPl(f.adres).indexOf(bezPl(f.miasto)) === -1) return;\n  let strona = String(f.strona || '').trim();\n  if (strona && PLATFORMY.some(function (p) { return strona.toLowerCase().indexOf(p) !== -1; })) return;\n  if (strona && !/^https?:/i.test(strona)) strona = 'https://' + strona;\n  const dom = domena(strona);\n  if (f.email && PLATFORMY.some(function (p) { return f.email.indexOf(p.replace(/\\.$/, '')) !== -1; })) { f.email = ''; f.email_zrodlo = ''; }\n  const klucz = dom || ('pid:' + f.place_id);\n  if (widziane[klucz] || widziane[f.place_id]) return;\n  widziane[klucz] = true; widziane[f.place_id] = true;\n  f.strona = strona;\n  f.klucz = klucz;\n  f.status = 'nowa';\n  f.powod = '';\n  f.proby = 0;\n  f.etap = 0;\n  wynik.push({ json: f });\n});\nreturn wynik;"
+      },
+      "id": "efb802c1-b0d5-41cb-800b-79a14dfa49c5",
+      "name": "Odfiltruj i ujednolić firmy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "rowNotExists",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "place_id",
+              "keyValue": "={{ $json.place_id }}"
+            },
+            {
+              "keyName": "klucz",
+              "keyValue": "={{ $json.klucz }}"
+            }
+          ]
+        }
+      },
+      "id": "577bcaa2-fbfd-4166-a0f9-70b9604bee9f",
+      "name": "Pomiń firmy już znane",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2464,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "schema": [
+            {
+              "id": "place_id",
+              "displayName": "place_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "klucz",
+              "displayName": "klucz",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "zrodlo",
+              "displayName": "zrodlo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "kampania_id",
+              "displayName": "kampania_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "nazwa",
+              "displayName": "nazwa",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "miasto",
+              "displayName": "miasto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "branza",
+              "displayName": "branza",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "adres",
+              "displayName": "adres",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "telefon",
+              "displayName": "telefon",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "strona",
+              "displayName": "strona",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ocena_google",
+              "displayName": "ocena_google",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "liczba_opinii",
+              "displayName": "liczba_opinii",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "powod",
+              "displayName": "powod",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email_zrodlo",
+              "displayName": "email_zrodlo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "proby",
+              "displayName": "proby",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "etap",
+              "displayName": "etap",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "4bba0951-854e-41f5-99e6-35473456b9de",
+      "name": "Zapisz nowe firmy",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2688,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{ $json.firma.id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "w_researchu",
+            "zablokowano": "={{ $now.toISO() }}",
+            "proby": "={{ ($json.firma.proby || 0) + 1 }}"
+          },
+          "schema": [
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "zablokowano",
+              "displayName": "zablokowano",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "proby",
+              "displayName": "proby",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "08cbfe84-b101-43b6-8967-e586c49bd066",
+      "name": "Oznacz firmę jako sprawdzaną",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1568,
+        944
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $('Wybrana firma').first().json.ma_strone }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3286d390-5f01-41b2-b391-61bbace28509",
+      "name": "Czy firma ma stronę?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1792,
+        944
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Wybrana firma').first().json.strona }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+            },
+            {
+              "name": "Accept-Language",
+              "value": "pl-PL,pl;q=0.9"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text",
+              "outputPropertyName": "html"
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "aad1beae-70e3-4918-b094-88091961afd6",
+      "name": "Pobierz stronę główną",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2016,
+        848
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const POCZ = function (u) { const m = String(u || '').match(/^(https?:\\/\\/[^\\/?#]+)/i); return m ? m[1] : ''; };\nconst HOST = function (u) { const m = String(u || '').match(/^https?:\\/\\/([^\\/?#:]+)/i); return m ? m[1].toLowerCase().replace(/^www\\./, '') : ''; };\nconst SCIEZKA = function (u) { return String(u || '').replace(/^https?:\\/\\/[^\\/?#]+/i, '').split('#')[0].split('?')[0] || '/'; };\nconst ABS = function (href, baza) {\n  href = String(href || '').trim();\n  if (!href || /^(mailto:|tel:|javascript:|data:)/i.test(href)) return '';\n  if (/^https?:\\/\\//i.test(href)) return href;\n  if (href.indexOf('//') === 0) return 'https:' + href;\n  if (href.charAt(0) === '/') return POCZ(baza) + href;\n  const b = String(baza).split('#')[0].split('?')[0];\n  return b.replace(/\\/[^\\/]*$/, '/') + href;\n};\nconst w = $('Wybrana firma').first().json;\nconst odp = $input.first().json;\nconst html = String(odp.html || odp.body || odp.data || '');\nconst status = odp.statusCode || 0;\nconst tekst = html.replace(/<script[\\s\\S]*?<\\/script>/gi, ' ').replace(/<style[\\s\\S]*?<\\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\\s+/g, ' ').trim();\nconst czytelna = status >= 200 && status < 400 && tekst.length >= 500 && !/(enable javascript|włącz javascript|wymaga włączonego javascript)/i.test(tekst.slice(0, 2000));\nconst KLUCZE = [['kontakt', 10], ['contact', 10], ['o-nas', 7], ['o-firmie', 7], ['about', 6], ['oferta', 5], ['uslugi', 5], ['usługi', 5], ['cennik', 4], ['polityka', 3], ['prywatnosc', 3], ['rodo', 3], ['regulamin', 2], ['zespol', 2], ['faq', 2]];\nconst linki = {};\nconst reg = /href\\s*=\\s*[\"']([^\"'#]+)[\"']/gi;\nlet m;\nwhile ((m = reg.exec(html)) !== null) {\n  const abs = ABS(m[1], w.strona);\n  if (!abs || HOST(abs) !== w.host) continue;\n  const sc = SCIEZKA(abs);\n  if (/\\.(pdf|jpe?g|png|gif|webp|svg|ico|css|js|json|xml|txt|woff2?|ttf|eot|map|zip|docx?|xlsx?|mp4)$/i.test(sc) || /\\/(wp-content|wp-includes|wp-json|feed|cdn-cgi)\\//i.test(sc)) continue;\n  let sciezka = sc.toLowerCase();\n  try { sciezka = decodeURIComponent(sciezka); } catch (e) {}\n  let punkty = 0;\n  KLUCZE.forEach(function (k) { if (sciezka.indexOf(k[0]) !== -1) punkty = Math.max(punkty, k[1]); });\n  if (!punkty) continue;\n  const klucz = POCZ(abs) + sc;\n  if (!linki[klucz] || linki[klucz] < punkty) linki[klucz] = punkty;\n}\nconst glowna = POCZ(w.strona) + SCIEZKA(w.strona);\nconst podstrony = Object.keys(linki).filter(function (u) { return u !== glowna; }).sort(function (a, b) { return linki[b] - linki[a]; }).slice(0, 4);\nreturn [{ json: { czytelna: czytelna, status: status, html: html.slice(0, 400000), podstrony: podstrony } }];"
+      },
+      "id": "84afbb31-0ff0-4ea5-a2bd-3e15adfa8a16",
+      "name": "Analizuj stronę główną",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.czytelna }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a4248eef-80d0-43df-b8dc-2aa9c6a47ba2",
+      "name": "Czy strona da się przeczytać?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2464,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $input.first().json.podstrony || [];\nif (!p.length) return [{ json: { url: $('Wybrana firma').first().json.strona, pomin: true } }];\nreturn p.map(function (u) { return { json: { url: u, pomin: false } }; });"
+      },
+      "id": "b46e549c-2118-4535-bf8c-e4fc67b96fee",
+      "name": "Lista podstron",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2912,
+        752
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+            },
+            {
+              "name": "Accept-Language",
+              "value": "pl-PL,pl;q=0.9"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "text",
+              "outputPropertyName": "html"
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "f40c3002-6901-406a-a27a-8d7dd3c42f47",
+      "name": "Pobierz podstrony",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        3136,
+        752
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const w = $('Wybrana firma').first().json;\nconst glowna = $('Analizuj stronę główną').first().json;\nconst lista = $('Lista podstron').all().map(function (i) { return i.json; });\nconst strony = [{ url: w.strona, html: glowna.html }];\n$input.all().forEach(function (i, idx) {\n  const l = lista[idx] || {};\n  if (l.pomin) return;\n  strony.push({ url: l.url, html: String(i.json.html || '') });\n});\nreturn [{ json: { sposob: 'pobieranie', strony: strony, brak_kredytow: false, kredyty_firecrawl: null } }];"
+      },
+      "id": "f3a5fb7d-168b-46af-b9d3-ec6a9acb0cef",
+      "name": "Złóż treść strony (pobieranie)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        752
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.firecrawl.dev/v2/scrape",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "firecrawlApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { url: $('Wybrana firma').first().json.strona, formats: ['markdown', 'links', 'rawHtml'], onlyMainContent: false, timeout: 45000 } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 70000
+        }
+      },
+      "id": "9bd80866-e649-4ed8-b947-c677e776240e",
+      "name": "Firecrawl: strona główna",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2688,
+        944
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "firecrawlApi": {
+          "id": "",
+          "name": "firecrawl"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const POCZ = function (u) { const m = String(u || '').match(/^(https?:\\/\\/[^\\/?#]+)/i); return m ? m[1] : ''; };\nconst HOST = function (u) { const m = String(u || '').match(/^https?:\\/\\/([^\\/?#:]+)/i); return m ? m[1].toLowerCase().replace(/^www\\./, '') : ''; };\nconst SCIEZKA = function (u) { return String(u || '').replace(/^https?:\\/\\/[^\\/?#]+/i, '').split('#')[0].split('?')[0] || '/'; };\nconst w = $('Wybrana firma').first().json;\nconst odp = $input.first().json;\nconst kod = odp.statusCode || 0;\nconst dane = ((odp.body || {}).data) || {};\nconst brak = kod === 402 || /credit|payment/i.test(JSON.stringify(odp.body || {}).slice(0, 500)) && kod >= 400;\nconst KLUCZE = [['kontakt', 10], ['contact', 10], ['o-nas', 7], ['o-firmie', 7], ['about', 6], ['oferta', 5], ['uslugi', 5], ['cennik', 4], ['polityka', 3], ['rodo', 3]];\nconst oceny = {};\n(dane.links || []).forEach(function (l) {\n  if (HOST(l) !== w.host) return;\n  const sc = SCIEZKA(l);\n  if (/\\.(pdf|jpe?g|png|gif|webp|svg|ico|css|js|json|xml|txt|woff2?|ttf|eot|map|zip|docx?|xlsx?|mp4)$/i.test(sc) || /\\/(wp-content|wp-includes|wp-json|feed|cdn-cgi)\\//i.test(sc)) return;\n  let s = sc.toLowerCase();\n  try { s = decodeURIComponent(s); } catch (e) {}\n  let p = 0;\n  KLUCZE.forEach(function (k) { if (s.indexOf(k[0]) !== -1) p = Math.max(p, k[1]); });\n  const kl = POCZ(l) + sc;\n  if (p && kl !== POCZ(w.strona) + SCIEZKA(w.strona)) oceny[kl] = Math.max(oceny[kl] || 0, p);\n});\nconst pod = brak || kod >= 400 ? [] : Object.keys(oceny).sort(function (a, b) { return oceny[b] - oceny[a]; }).slice(0, 3);\nif (!pod.length) return [{ json: { url: '', pomin: true, brak_kredytow: brak } }];\nreturn pod.map(function (u) { return { json: { url: u, pomin: false, brak_kredytow: false } }; });"
+      },
+      "id": "dc7bd256-04f5-44c8-a9ae-4a4ceba36bb6",
+      "name": "Firecrawl: wybierz podstrony",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2912,
+        944
+      ]
+    },
+    {
+      "parameters": {
+        "method": "={{ $json.pomin ? 'GET' : 'POST' }}",
+        "url": "={{ $json.pomin ? 'https://api.firecrawl.dev/v2/team/credit-usage' : 'https://api.firecrawl.dev/v2/scrape' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "firecrawlApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.pomin ? {} : { url: $json.url, formats: ['markdown', 'rawHtml'], onlyMainContent: false, timeout: 45000 } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 70000
+        }
+      },
+      "id": "04cea814-09a0-4b5b-889f-1afb8a58385f",
+      "name": "Firecrawl: podstrony",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        3136,
+        944
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "firecrawlApi": {
+          "id": "",
+          "name": "firecrawl"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const w = $('Wybrana firma').first().json;\nconst g = $('Firecrawl: strona główna').first().json;\nconst plan = $('Firecrawl: wybierz podstrony').all().map(function (i) { return i.json; });\nconst strony = [];\nconst kodG = g.statusCode || 0;\nconst dG = ((g.body || {}).data) || {};\nif (kodG >= 200 && kodG < 400 && (dG.markdown || dG.rawHtml)) strony.push({ url: w.strona, html: String(dG.rawHtml || ''), markdown: String(dG.markdown || '') });\nlet kredyty = null;\n$input.all().forEach(function (i, idx) {\n  const p = plan[idx] || {};\n  const b = i.json.body || {};\n  if (p.pomin) { if (b.data && typeof b.data.remainingCredits === 'number') kredyty = b.data.remainingCredits; return; }\n  const d = b.data || {};\n  if ((i.json.statusCode || 0) < 400 && (d.markdown || d.rawHtml)) strony.push({ url: p.url, html: String(d.rawHtml || ''), markdown: String(d.markdown || '') });\n});\nconst brak = kodG === 402 || plan.some(function (p) { return p.brak_kredytow; });\nreturn [{ json: { sposob: 'firecrawl', strony: strony, brak_kredytow: brak, kredyty_firecrawl: kredyty } }];"
+      },
+      "id": "586b3571-8359-4537-ad69-528fd5215a0d",
+      "name": "Złóż treść strony (Firecrawl)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        944
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { sposob: 'brak_strony', strony: [], brak_kredytow: false, kredyty_firecrawl: null } }];"
+      },
+      "id": "1d2d0874-b481-4b54-ac14-cd0bca8d096d",
+      "name": "Firma bez strony",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        1136
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const w = $('Wybrana firma').first().json;\nconst wej = $input.first().json;\nconst encje = { nbsp: ' ', amp: '&', quot: '\"', apos: \"'\", lt: '<', gt: '>', oacute: 'ó', Oacute: 'Ó', aacute: 'á', eacute: 'é', laquo: '«', raquo: '»', ndash: '–', mdash: '—', hellip: '…', bdquo: '„', rdquo: '”', copy: '©' };\nconst dekoduj = function (t) { return t.replace(/&#(\\d+);/g, function (a, n) { return String.fromCharCode(parseInt(n, 10)); }).replace(/&#x([0-9a-f]+);/gi, function (a, n) { return String.fromCharCode(parseInt(n, 16)); }).replace(/&([a-z]+);/gi, function (a, n) { return encje[n] !== undefined ? encje[n] : a; }); };\nconst cfemail = function (hex) { try { const k = parseInt(hex.substr(0, 2), 16); let o = ''; for (let i = 2; i < hex.length; i += 2) o += String.fromCharCode(parseInt(hex.substr(i, 2), 16) ^ k); return o; } catch (e) { return ''; } };\nconst naTekst = function (html) {\n  return dekoduj(String(html || '').replace(/<(script|style|noscript|svg|iframe)[\\s\\S]*?<\\/\\1>/gi, ' ').replace(/<br\\s*\\/?>/gi, '\\n').replace(/<\\/(p|div|li|h[1-6]|tr|section|article)>/gi, '\\n').replace(/<[^>]+>/g, ' ')).replace(/[ \\t]+/g, ' ').replace(/\\n\\s*\\n+/g, '\\n').trim();\n};\nconst REG = /[a-z0-9][a-z0-9._%+-]{0,63}@[a-z0-9][a-z0-9.-]{0,253}\\.[a-z]{2,24}/gi;\nconst maile = [];\nconst dodaj = function (e, url) { e = String(e || '').toLowerCase().replace(/^mailto:/, '').split('?')[0].trim().replace(/[.,;:]+$/, ''); if (e && maile.every(function (x) { return x.email !== e || x.url !== url; })) maile.push({ email: e, url: url }); };\nconst widzety = [];\nconst WIDZETY = [['booksy', 'zapisy online przez Booksy'], ['momentapp', 'zapisy online (Moment)'], ['moment.pl', 'zapisy online (Moment)'], ['versum', 'zapisy online (Versum)'], ['fresha', 'zapisy online (Fresha)'], ['znanylekarz', 'zapisy przez ZnanyLekarz'], ['docplanner', 'zapisy przez ZnanyLekarz'], ['calendly', 'zapisy online (Calendly)'], ['tidio', 'czat na stronie (Tidio)'], ['smartsupp', 'czat na stronie (Smartsupp)'], ['livechat', 'czat na stronie (LiveChat)'], ['tawk.to', 'czat na stronie (Tawk)'], ['crisp.chat', 'czat na stronie (Crisp)'], ['customerchat', 'czat Messenger na stronie'], ['zendesk', 'czat lub helpdesk (Zendesk)'], ['bookero', 'zapisy online (Bookero)'], ['reservio', 'zapisy online (Reservio)'], ['medfile', 'rejestracja online (Medfile)'], ['simplybook', 'zapisy online (SimplyBook)']];\nconst strony = [];\n(wej.strony || []).forEach(function (s) {\n  const html = String(s.html || '');\n  const niskie = html.toLowerCase();\n  (html.match(/data-cfemail=\"([0-9a-f]+)\"/gi) || []).forEach(function (x) { dodaj(cfemail(x.replace(/.*=\"|\"/g, '')), s.url); });\n  (html.match(/mailto:[^\"'\\s>]+/gi) || []).forEach(function (x) { try { dodaj(decodeURIComponent(x), s.url); } catch (e) { dodaj(x, s.url); } });\n  let tekst = s.markdown ? String(s.markdown) : naTekst(html);\n  const odkryty = tekst.replace(/\\s*[\\[(](at|małpa|malpa)[\\])]\\s*/gi, '@').replace(/\\s*[\\[(](dot|kropka)[\\])]\\s*/gi, '.');\n  (odkryty.match(REG) || []).forEach(function (e) { dodaj(e, s.url); });\n  WIDZETY.forEach(function (x) { if (niskie.indexOf(x[0]) !== -1 && widzety.indexOf(x[1]) === -1) widzety.push(x[1]); });\n  if (/<form[\\s\\S]{0,4000}?<textarea/i.test(html) && widzety.indexOf('formularz kontaktowy') === -1) widzety.push('formularz kontaktowy');\n  strony.push({ url: s.url, tekst: tekst.slice(0, 6000) });\n});\nlet razem = '';\nstrony.forEach(function (s) { razem += '\\n\\n### ' + s.url + '\\n' + s.tekst; });\nreturn [{ json: {\n  sposob: wej.sposob, brak_kredytow: !!wej.brak_kredytow, kredyty_firecrawl: wej.kredyty_firecrawl,\n  liczba_stron: strony.length, tekst_strony: razem.trim().slice(0, 16000), maile_strony: maile.slice(0, 30), ma_juz: widzety\n} }];"
+      },
+      "id": "3e3074a1-82fb-47fe-9bfa-e320dae59137",
+      "name": "Treść strony i maile ze strony",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3584,
+        944
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const t = $input.first().json;\nconst ust = {};\n$('Pobierz ustawienia').all().forEach(function (i) { if (i.json && i.json.klucz) ust[i.json.klucz] = i.json.wartosc; });\nconst dzis = $now.toFormat('yyyy-MM-dd');\nif (ust.firecrawl_alert_data === dzis) return [];\nif (t.brak_kredytow) return [{ json: { tekst: '⚠️ Firecrawl: skończyły się kredyty. System przełączył się na tryb awaryjny (OpenAI + ostrzejsze sprawdzanie maili). Firmy, których nie da się sprawdzić, wrócą do kolejki w przyszłym miesiącu.', dzis: dzis } }];\nif (typeof t.kredyty_firecrawl === 'number' && t.kredyty_firecrawl < 100) return [{ json: { tekst: '⚠️ Firecrawl: zostało tylko ' + t.kredyty_firecrawl + ' kredytów w tym miesiącu.', dzis: dzis } }];\nreturn [];"
+      },
+      "id": "3252d95f-5328-460c-a71b-a6e0b2405f40",
+      "name": "Czy ostrzec o Firecrawlu?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3808,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "TWOJ_TELEGRAM_CHAT_ID",
+        "text": "={{ String($json.tekst).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "2c8b0696-3582-4afe-b1a8-d4fb61ee820a",
+      "name": "Telegram: ostrzeżenie Firecrawl",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        4032,
+        848
+      ],
+      "webhookId": "21b071ee-f308-4ae9-9afd-742aa5d44e6d",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Pain Radar Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_ustawienia",
+          "cachedResultName": "cm_ustawienia"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "klucz",
+              "keyValue": "firecrawl_alert_data"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "wartosc": "={{ $('Czy ostrzec o Firecrawlu?').first().json.dzis }}"
+          },
+          "schema": [
+            {
+              "id": "wartosc",
+              "displayName": "wartosc",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e6777767-3070-4a1f-964c-f02f7a4a60ad",
+      "name": "Zapamiętaj ostrzeżenie",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        4256,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Wybrana firma').first().json.firma.zrodlo === 'google' ? 'https://places.googleapis.com/v1/places/' + $('Wybrana firma').first().json.firma.place_id : 'https://places.googleapis.com/v1/places/brak' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "languageCode",
+              "value": "pl"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Goog-FieldMask",
+              "value": "={{ $('Wybrana firma').first().json.firma.zrodlo === 'google' ? 'id,rating,userRatingCount,reviews' : 'id' }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 20000
+        }
+      },
+      "id": "ea0e596e-dfcd-4d5a-ac74-5a71b0f1bd2c",
+      "name": "Google: opinie o firmie",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        3808,
+        1040
+      ],
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Google Place Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const w = $('Wybrana firma').first().json;\nconst odp = $input.first().json;\nconst opinie = (odp.reviews || []).map(function (r) { return { ocena: r.rating, kiedy: r.relativePublishTimeDescription || '', tekst: String(((r.text || r.originalText || {}).text) || '').slice(0, 700) }; }).filter(function (r) { return r.tekst; });\nconst f = w.firma;\nconst instrukcja = [\n  'Jesteś dokładnym researcherem. Szukasz w internecie informacji o jednej konkretnej polskiej firmie.',\n  'Zasady: podawaj wyłącznie informacje, które naprawdę widzisz w źródłach. Każdy fakt musi mieć adres URL źródła. Niczego nie zgaduj i nie uzupełniaj z wyobraźni.',\n  'emaile: tylko adresy email tej konkretnej firmy, które są dosłownie napisane na stronie źródłowej. Pole fragment = dokładny kawałek tekstu ze strony, w którym występuje email. Nigdy nie twórz adresu z domeny ani z imienia. Jeśli nie znajdziesz, zwróć pustą listę.',\n  'Sprawdź: dane kontaktowe, opinie w innych serwisach (np. Facebook, Panorama Firm, ZnanyLekarz, Oferteo, GoWork), ogłoszenia o pracę, informacje o rozwoju lub kłopotach, czy firma nadal działa, czy to sieć, franczyza lub oddział dużej firmy.',\n  'sygnaly_problemow: konkretne skargi klientów lub sygnały przeciążenia (np. trudny kontakt, długie czekanie na odpowiedź, pomyłki w terminach, szukanie pracownika do obsługi klienta). Z cytatem i URL.',\n  'Odpowiadasz po polsku, krótko.'\n].join('\\n');\nconst pytanie = 'Firma: ' + f.nazwa + '\\nMiasto: ' + f.miasto + '\\nAdres: ' + (f.adres || '-') + '\\nBranża: ' + f.branza + '\\nStrona: ' + (w.strona || 'brak') + '\\nTelefon: ' + (f.telefon || '-');\nconst schemat = {\n  type: 'object', additionalProperties: false,\n  required: ['emaile', 'czy_dziala', 'czy_siec_lub_franczyza', 'fakty', 'sygnaly_problemow', 'opinie_z_innych_serwisow'],\n  properties: {\n    emaile: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['email', 'url', 'fragment'], properties: { email: { type: 'string' }, url: { type: 'string' }, fragment: { type: 'string' } } } },\n    czy_dziala: { type: 'string', enum: ['tak', 'nie', 'nie_wiadomo'] },\n    czy_siec_lub_franczyza: { type: 'string', enum: ['tak', 'nie', 'nie_wiadomo'] },\n    fakty: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['fakt', 'url'], properties: { fakt: { type: 'string' }, url: { type: 'string' } } } },\n    sygnaly_problemow: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['opis', 'cytat', 'url'], properties: { opis: { type: 'string' }, cytat: { type: 'string' }, url: { type: 'string' } } } },\n    opinie_z_innych_serwisow: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['serwis', 'tekst', 'url'], properties: { serwis: { type: 'string' }, tekst: { type: 'string' }, url: { type: 'string' } } } }\n  }\n};\nreturn [{ json: {\n  opinie_google: opinie,\n  ocena_google: odp.rating || f.ocena_google || 0,\n  liczba_opinii: odp.userRatingCount || f.liczba_opinii || 0,\n  zapytanie: { model: 'gpt-5.4-mini', reasoning: { effort: 'low' }, tools: [{ type: 'web_search', search_context_size: 'low', user_location: { type: 'approximate', country: 'PL' } }], max_tool_calls: 3, input: [{ role: 'system', content: instrukcja }, { role: 'user', content: pytanie }], text: { format: { type: 'json_schema', name: 'research_firmy', strict: true, schema: schemat } } }\n} }];"
+      },
+      "id": "fb4142fb-9796-4d93-86e4-63268bb25d4d",
+      "name": "Przygotuj research w internecie",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4032,
+        1040
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ Object.assign({}, $('Przygotuj research w internecie').first().json.zapytanie, { service_tier: 'flex' }) }}",
+        "options": {
+          "timeout": 900000
+        }
+      },
+      "id": "04569017-72e3-426f-a289-a522c3652803",
+      "name": "AI: research w internecie",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        4256,
+        1040
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const w = $('Wybrana firma').first().json;\nconst strona = $('Treść strony i maile ze strony').first().json;\nconst odp = $input.first().json;\nlet tekst = '';\n(odp.output || []).forEach(function (o) { if (o.type === 'message') (o.content || []).forEach(function (c) { if (c.type === 'output_text') tekst = c.text; }); });\nlet web = { emaile: [], czy_dziala: 'nie_wiadomo', czy_siec_lub_franczyza: 'nie_wiadomo', fakty: [], sygnaly_problemow: [], opinie_z_innych_serwisow: [] };\ntry { if (tekst) web = JSON.parse(tekst); } catch (e) {}\nconst DARMOWE = ['gmail.com','wp.pl','o2.pl','onet.pl','op.pl','onet.eu','poczta.onet.pl','interia.pl','interia.eu','poczta.fm','tlen.pl','gazeta.pl','vp.pl','autograf.pl','buziaczek.pl','outlook.com','hotmail.com','live.com','icloud.com','yahoo.com','int.pl','go2.pl','protonmail.com','proton.me','spoko.pl','poczta.pl','orange.pl','neostrada.pl'];\nconst PLATFORMY = ['booksy.com','znanylekarz.pl','docplanner','panoramafirm.pl','oferteo.pl','fixly.pl','pkt.pl','aleo.com','olx.pl','facebook.com','wix.com','wixpress.com','google.com','sentry.io','example.com','example.pl','domena.pl','twojadomena','yourdomain','domain.com','email.com','test.pl','godaddy','cloudflare','schema.org','w3.org','jquery','gowork.pl','infakt.pl'];\nconst ZLE = /^(rodo|iod|ido|abi|gdpr|dpo|ochronadanych|ochrona\\.danych|daneosobowe|privacy|faktury|faktura|invoice|invoices|noreply|no-reply|no\\.reply|donotreply|newsletter|rekrutacja|praca|kariera|hr|jobs|cv|reklamacje|reklamacja|webmaster|postmaster|abuse|hostmaster|marketing|press|prasa|media|sprzedaz-hurt)$/i;\nconst DOBRE = /^(biuro|kontakt|info|office|sekretariat|recepcja|rejestracja|zapisy|rezerwacje|rezerwacja|hello|czesc|firma|szef|wlasciciel|zarzad)$/i;\nconst bezPl = function (t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/ł/g, 'l'); };\nconst slowaNazwy = bezPl(w.firma.nazwa).split(/[^a-z0-9]+/).filter(function (s) { return s.length >= 4 && ['biuro','firma','uslugi','rachunkowe','salon','sklep','gabinet','studio','centrum','sp','zoo','spolka','kancelaria','serwis','warsztat'].indexOf(s) === -1; });\nconst ocen = function (email, zrodlo, url) {\n  email = String(email || '').toLowerCase().trim();\n  if (!/^[a-z0-9][a-z0-9._%+-]{0,63}@[a-z0-9][a-z0-9.-]*\\.[a-z]{2,24}$/.test(email)) return null;\n  if (/\\.(png|jpe?g|gif|webp|svg|css|js)$/.test(email)) return null;\n  const lok = email.split('@')[0];\n  const dom = email.split('@')[1];\n  if (ZLE.test(lok.replace(/[0-9]+$/, ''))) return null;\n  if (PLATFORMY.some(function (p) { return dom.indexOf(p) !== -1; })) return null;\n  let pkt = 0;\n  const wlasna = w.host && (dom === w.host || dom.endsWith('.' + w.host) || w.host.endsWith('.' + dom));\n  const darmowa = DARMOWE.indexOf(dom) !== -1;\n  const pasujeNazwa = slowaNazwy.some(function (s) { return bezPl(dom).indexOf(s) !== -1 || bezPl(lok).indexOf(s) !== -1; });\n  if (wlasna) pkt += 50;\n  else if (darmowa) pkt += 20;\n  else if (pasujeNazwa) pkt += 25;\n  else if (!w.host && zrodlo !== 'strona') pkt += 10;\n  else return null;\n  if (zrodlo === 'strona') pkt += 25;\n  if (zrodlo === 'osm') pkt += 15;\n  if (zrodlo === 'web') pkt += 5;\n  if (DOBRE.test(lok)) pkt += 10;\n  if (/kontakt|contact/i.test(String(url || ''))) pkt += 5;\n  return { email: email, domena: dom, zrodlo: zrodlo, url: url || '', punkty: pkt, wymaga_potwierdzenia: zrodlo === 'web' };\n};\nconst lista = [];\n(strona.maile_strony || []).forEach(function (m) { const o = ocen(m.email, 'strona', m.url); if (o) lista.push(o); });\nif (w.firma.email && w.firma.email_zrodlo === 'osm') { const o = ocen(w.firma.email, 'osm', 'OpenStreetMap'); if (o) lista.push(o); }\n(web.emaile || []).forEach(function (m) {\n  if (!m.fragment || String(m.fragment).toLowerCase().indexOf(String(m.email).toLowerCase()) === -1) return;\n  const o = ocen(m.email, 'web', m.url);\n  if (o) lista.push(o);\n});\nconst najlepsze = {};\nlista.forEach(function (o) { if (!najlepsze[o.email] || najlepsze[o.email].punkty < o.punkty || (najlepsze[o.email].wymaga_potwierdzenia && !o.wymaga_potwierdzenia)) najlepsze[o.email] = o; });\nconst posort = Object.values(najlepsze).sort(function (a, b) { return b.punkty - a.punkty; });\nconst wybrany = posort[0] || null;\nreturn [{ json: {\n  web: web,\n  kandydaci: posort.slice(0, 5),\n  wybrany: wybrany,\n  url_potwierdzenia: wybrany && wybrany.wymaga_potwierdzenia ? wybrany.url : 'https://www.mrozikdigital.com/',\n  domena_mx: wybrany ? wybrany.domena : 'brak-maila.invalid'\n} }];"
+      },
+      "id": "84398cc9-a064-479f-90c1-f8ed8cb10bdd",
+      "name": "Wybierz najlepszy email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4480,
+        1040
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url_potwierdzenia }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "text",
+              "outputPropertyName": "html"
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "158e2900-ff14-421d-8643-733fc2ea42c4",
+      "name": "Sprawdź źródło maila",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        4704,
+        1040
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://dns.google/resolve",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "={{ $('Wybierz najlepszy email').first().json.domena_mx }}"
+            },
+            {
+              "name": "type",
+              "value": "MX"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "id": "da711095-770e-4e2a-ac59-be17297eb52c",
+      "name": "Sprawdź skrzynkę domeny (MX)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        4928,
+        1040
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_czarna_lista",
+          "cachedResultName": "cm_czarna_lista"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "wartosc",
+              "keyValue": "={{ ($('Wybierz najlepszy email').first().json.wybrany || {}).email || '__brak__' }}"
+            },
+            {
+              "keyName": "wartosc",
+              "keyValue": "={{ ($('Wybierz najlepszy email').first().json.wybrany || {}).domena || '__brak__' }}"
+            },
+            {
+              "keyName": "wartosc",
+              "keyValue": "={{ $('Wybrana firma').first().json.host || '__brak__' }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "id": "8e0e1b00-95a7-400c-83c8-9cbc288dc975",
+      "name": "Sprawdź czarną listę",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        5152,
+        1040
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email",
+              "keyValue": "={{ ($('Wybierz najlepszy email').first().json.wybrany || {}).email || '__brak__' }}"
+            },
+            {
+              "condition": "neq",
+              "keyValue": "={{ $('Wybrana firma').first().json.firma.id }}"
+            }
+          ]
+        },
+        "limit": 5
+      },
+      "id": "e1c66003-0313-401b-b936-0faf52ce764f",
+      "name": "Czy ten email już był?",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        5376,
+        1040
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const w = $('Wybrana firma').first().json;\nconst k = $('Wybierz najlepszy email').first().json;\nconst strona = $('Treść strony i maile ze strony').first().json;\nconst zrodloHtml = String(($('Sprawdź źródło maila').first().json || {}).html || '').toLowerCase();\nconst mxOdp = $('Sprawdź skrzynkę domeny (MX)').first().json || {};\nconst czarna = $('Sprawdź czarną listę').all().filter(function (i) { return i.json && i.json.id; });\nconst byl = $('Czy ten email już był?').all().filter(function (i) { return i.json && i.json.id; });\nconst wynik = { ok: false, status: 'odrzucona', powod: '', email: '', email_zrodlo: '' };\nconst wyb = k.wybrany;\nif (k.web && k.web.czy_dziala === 'nie') { wynik.powod = 'firma prawdopodobnie nie działa'; return [{ json: wynik }]; }\nif (k.web && k.web.czy_siec_lub_franczyza === 'tak') { wynik.powod = 'sieć, franczyza lub oddział dużej firmy'; return [{ json: wynik }]; }\nif (!wyb) {\n  if (strona.brak_kredytow && w.ma_strone) { wynik.status = 'sprawdz_pozniej'; wynik.powod = 'strony nie dało się przeczytać (brak kredytów Firecrawl)'; }\n  else wynik.powod = 'nie znaleziono prawdziwego maila';\n  return [{ json: wynik }];\n}\nif (wyb.wymaga_potwierdzenia) {\n  const cf = (zrodloHtml.match(/data-cfemail=\"([0-9a-f]+)\"/gi) || []).map(function (x) { const h = x.replace(/.*=\"|\"/g, ''); const key = parseInt(h.substr(0, 2), 16); let o = ''; for (let i = 2; i < h.length; i += 2) o += String.fromCharCode(parseInt(h.substr(i, 2), 16) ^ key); return o.toLowerCase(); });\n  const widac = zrodloHtml.indexOf(wyb.email) !== -1 || cf.indexOf(wyb.email) !== -1;\n  if (!widac) { wynik.powod = 'email z internetu nie potwierdził się na stronie źródłowej'; return [{ json: wynik }]; }\n}\nconst ma = (mxOdp.Answer || []).some(function (a) { return a.type === 15; });\nif (!ma) { wynik.powod = 'domena maila nie przyjmuje poczty (brak MX)'; return [{ json: wynik }]; }\nif (czarna.length) { wynik.powod = 'email lub domena na czarnej liście'; return [{ json: wynik }]; }\nif (byl.length) { wynik.powod = 'ten email był już użyty przy innej firmie'; return [{ json: wynik }]; }\nwynik.ok = true; wynik.status = 'ok'; wynik.email = wyb.email; wynik.email_zrodlo = wyb.zrodlo + (wyb.url ? ' | ' + wyb.url : '');\nreturn [{ json: wynik }];"
+      },
+      "id": "b670d19d-df09-4fdb-b338-95a7be7491af",
+      "name": "Decyzja o mailu",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5600,
+        1040
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f3ab5396-0d9d-4fdf-9ab7-a533bf0eeb8d",
+      "name": "Mamy prawdziwy email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5824,
+        1040
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const w = $('Wybrana firma').first().json;\nconst s = $('Treść strony i maile ze strony').first().json;\nconst k = $('Wybierz najlepszy email').first().json;\nconst op = $('Przygotuj research w internecie').first().json;\nconst f = w.firma;\nconst dane = {\n  firma: { nazwa: f.nazwa, miasto: f.miasto, branza: f.branza, adres: f.adres, ma_strone: w.ma_strone, ocena_google: op.ocena_google, liczba_opinii_google: op.liczba_opinii },\n  ma_juz_na_stronie: s.ma_juz,\n  tekst_strony: s.tekst_strony ? s.tekst_strony.slice(0, 12000) : '(firma nie ma strony albo nie dało się jej przeczytać)',\n  opinie_google: op.opinie_google,\n  internet: { fakty: k.web.fakty || [], sygnaly_problemow: k.web.sygnaly_problemow || [], opinie_z_innych_serwisow: k.web.opinie_z_innych_serwisow || [], czy_dziala: k.web.czy_dziala, czy_siec: k.web.czy_siec_lub_franczyza },\n  bolaczki_branzy: w.kampania.bolaczki\n};\nconst instrukcja = [\n  'Jesteś doświadczonym konsultantem automatyzacji AI dla polskich firm. Analizujesz jedną firmę na podstawie zebranych danych i wybierasz, co zaproponować jej w pierwszym mailu.',\n  'ZASADY:',\n  '1. Proponujemy WYŁĄCZNIE automatyzacje i rozwiązania AI, np.: automatyczne odpowiadanie na zapytania i wiadomości klientów, przypomnienia o wizytach i terminach (SMS/mail), potwierdzanie i odwoływanie wizyt jednym kliknięciem, automatyczne przygotowanie wycen i ofert, zbieranie i porządkowanie dokumentów i faktur od klientów, automatyczne zbieranie opinii od zadowolonych klientów, przypominanie stałym klientom o kolejnej usłudze, powiadomienia o statusie zlecenia, raporty dla właściciela.',\n  '2. NIGDY nie proponuj tworzenia, przebudowy ani poprawy strony internetowej, SEO, reklam, logo, prowadzenia social mediów ani niczego wizualnego. Brak strony nie jest problemem do rozwiązania. Tekst strony służy tylko do znajdowania bolączek i tego, co firma już ma.',\n  '3. Nie proponuj tego, co firma już ma (lista ma_juz_na_stronie oraz to, co wynika z tekstu strony).',\n  '4. Pomysły zbieraj z trzech źródeł: research (konkretny fakt o TEJ firmie z dostarczonych danych: opinie, strona, internet), branza (typowe bolączki branży z listy bolaczki_branzy), ogolne (typowe bolączki każdej firmy usługowej).',\n  '5. Pomysł ze źródła research MUSI mieć pole dowod: dosłowny, krótki cytat (max 25 słów) skopiowany z dostarczonych danych. Dowód musi pokazywać konkretny problem, potrzebę albo sytuację tej firmy (np. skarga lub prośba w opinii, zapisy tylko telefonicznie, brak formularza, ogłoszenie o pracę, dużo pytań klientów). Ogólny opis oferty firmy albo pochwała w opinii NIE jest dowodem problemu. Bez prawdziwego cytatu ustaw źródło branza albo ogolne i pusty dowod. Nie wymyślaj faktów, nie przekręcaj opinii.',\n  '6. Oceń siłę każdego pomysłu 1-10 jednym pytaniem: czy właściciel od razu poczuje, że da mu to pieniądze, klientów albo czas? Drobiazgi i kosmetyka dostają maksymalnie 3.',\n  '7. glowny i ekstra to indeksy (od 0) dwóch najsilniejszych, różnych pomysłów z listy pomysly, niezależnie od źródła. Jeśli pomysł z researchu jest słaby, a bolączka branży mocniejsza, wybierz bolączkę branży.',\n  '8. typ_propozycji: konkretny, gdy glowny pochodzi z research, w przeciwnym razie branzowy.',\n  '9. otwarcie: opinie (gdy główny dowód jest w opiniach), strona (gdy dowód jest na stronie lub w internecie), branza (gdy typ_propozycji to branzowy).',\n  '10. czy_pasuje = false tylko gdy: firma nie działa lub jest w likwidacji, to sieć, franczyza, oddział dużej firmy albo instytucja publiczna, to wyraźnie nie jest firma z tej branży, albo dane wskazują poważne kłopoty firmy. Podaj powod_odrzucenia. W innym przypadku powod_odrzucenia to pusty tekst.',\n  '11. ocena_leada 1-10: jak dobrym klientem na automatyzacje jest ta firma (wielkość, ruch klientów, widoczne powtarzalne procesy, aktywność).',\n  '12. obserwacje: 0-5 krótkich, konkretnych obserwacji, które pokazują bolączki lub to, co działa (np. zapisy tylko telefonicznie, brak formularza, dużo opinii o długim czekaniu). Nigdy oceny wyglądu strony.',\n  '13. opis_dla_klienta: 1-2 bardzo proste zdania, jak to działa i co firma z tego ma, bez technicznych słów (bez: workflow, integracja, API, CRM, chatbot, n8n).',\n  'Pisz po polsku, prosto, formą bezosobową. Proponuj 4-7 pomysłów.'\n].join('\\n');\nconst schemat = {\n  type: 'object', additionalProperties: false,\n  required: ['czy_pasuje', 'powod_odrzucenia', 'ma_juz', 'obserwacje', 'pomysly', 'glowny', 'ekstra', 'typ_propozycji', 'otwarcie', 'ocena_leada', 'uzasadnienie'],\n  properties: {\n    czy_pasuje: { type: 'boolean' },\n    powod_odrzucenia: { type: 'string' },\n    ma_juz: { type: 'array', items: { type: 'string' } },\n    obserwacje: { type: 'array', items: { type: 'string' } },\n    pomysly: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['tytul', 'opis_dla_klienta', 'korzysc', 'zrodlo', 'dowod', 'sila'], properties: { tytul: { type: 'string' }, opis_dla_klienta: { type: 'string' }, korzysc: { type: 'string' }, zrodlo: { type: 'string', enum: ['research', 'branza', 'ogolne'] }, dowod: { type: 'string' }, sila: { type: 'integer' } } } },\n    glowny: { type: 'integer' },\n    ekstra: { type: 'integer' },\n    typ_propozycji: { type: 'string', enum: ['konkretny', 'branzowy'] },\n    otwarcie: { type: 'string', enum: ['opinie', 'strona', 'branza'] },\n    ocena_leada: { type: 'integer' },\n    uzasadnienie: { type: 'string' }\n  }\n};\nreturn [{ json: { dane: dane, zapytanie: { model: 'gpt-5.4-mini', reasoning: { effort: 'medium' }, input: [{ role: 'system', content: instrukcja }, { role: 'user', content: JSON.stringify(dane) }], text: { format: { type: 'json_schema', name: 'analiza_firmy', strict: true, schema: schemat } } } } }];"
+      },
+      "id": "2b52569f-ca21-4548-b0b7-38e5fa4e2cf5",
+      "name": "Przygotuj analizę firmy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6048,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ Object.assign({}, $('Przygotuj analizę firmy').first().json.zapytanie, { service_tier: 'flex' }) }}",
+        "options": {
+          "timeout": 900000
+        }
+      },
+      "id": "0c688a26-9e3d-4711-af1e-cc318317e0d5",
+      "name": "AI: analiza firmy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        6272,
+        960
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const w = $('Wybrana firma').first().json;\nconst dane = $('Przygotuj analizę firmy').first().json.dane;\nconst odp = $input.first().json;\nlet tekst = '';\n(odp.output || []).forEach(function (o) { if (o.type === 'message') (o.content || []).forEach(function (c) { if (c.type === 'output_text') tekst = c.text; }); });\nif (!tekst) throw new Error('AI nie zwróciło analizy firmy');\nconst a = JSON.parse(tekst);\nif (!a.czy_pasuje) return [{ json: { ok: false, status: 'odrzucona', powod: 'AI: ' + (a.powod_odrzucenia || 'firma nie pasuje') } }];\nconst ZAKAZ = /(stron[aęyi]\\s+(internetow|www)|now[aąej]+\\s+stron|witryn|\\bseo\\b|pozycjonow|\\blogo\\b|social\\s*media|media\\s+społeczn|prowadzeni[ae]\\s+(facebook|instagram|profil)|reklam[ay]\\s+(google|facebook)|kampani[ae]\\s+reklam)/i;\nconst zrodlaTekst = (JSON.stringify(dane.opinie_google) + ' ' + dane.tekst_strony + ' ' + JSON.stringify(dane.internet)).toLowerCase();\nconst normal = function (t) { return String(t || '').toLowerCase().replace(/[^a-ząćęłńóśźż0-9 ]/g, ' ').replace(/\\s+/g, ' ').trim(); };\nconst zrodlaN = normal(zrodlaTekst);\nconst dowodPrawdziwy = function (d) {\n  const slowa = normal(d).split(' ').filter(function (s) { return s.length > 3; });\n  if (slowa.length < 3) return false;\n  const traf = slowa.filter(function (s) { return zrodlaN.indexOf(s) !== -1; }).length;\n  return traf / slowa.length >= 0.7;\n};\nlet pomysly = (a.pomysly || []).map(function (p, i) { return Object.assign({ idx: i }, p); }).filter(function (p) { return !ZAKAZ.test(p.tytul + ' ' + p.opis_dla_klienta); });\npomysly.forEach(function (p) {\n  p.sila = Math.max(1, Math.min(10, parseInt(p.sila, 10) || 1));\n  if (p.zrodlo === 'research' && !dowodPrawdziwy(p.dowod)) { p.zrodlo = 'branza'; p.dowod = ''; p.sila = Math.max(1, p.sila - 1); }\n});\nlet glowny = pomysly.find(function (p) { return p.idx === a.glowny; });\nlet ekstra = pomysly.find(function (p) { return p.idx === a.ekstra && p !== glowny; });\nconst posort = pomysly.slice().sort(function (x, y) { return y.sila - x.sila; });\nif (!glowny || glowny.sila < 5) glowny = posort[0];\nif (!ekstra || ekstra === glowny || ekstra.sila < 4) ekstra = posort.find(function (p) { return p !== glowny; });\nif (!glowny || !ekstra || glowny.sila < 5) {\n  const b = (w.kampania.bolaczki || []).filter(function (x) { return !ZAKAZ.test(x.bolaczka + ' ' + x.rozwiazanie); });\n  if (b.length < 2) return [{ json: { ok: false, status: 'odrzucona', powod: 'brak mocnej propozycji dla tej firmy' } }];\n  glowny = glowny && glowny.sila >= 5 ? glowny : { tytul: b[0].bolaczka, opis_dla_klienta: b[0].rozwiazanie, korzysc: b[0].korzysc, zrodlo: 'branza', dowod: '', sila: 6 };\n  ekstra = { tytul: b[1].bolaczka, opis_dla_klienta: b[1].rozwiazanie, korzysc: b[1].korzysc, zrodlo: 'branza', dowod: '', sila: 5 };\n}\nconst typ = glowny.zrodlo === 'research' ? 'konkretny' : 'branzowy';\nlet otwarcie = a.otwarcie;\nif (typ === 'branzowy') otwarcie = 'branza';\nif (typ === 'konkretny' && otwarcie === 'branza') otwarcie = 'strona';\nconst ocenaLeada = Math.max(1, Math.min(10, parseInt(a.ocena_leada, 10) || 5));\nreturn [{ json: { ok: true, analiza: { ma_juz: (a.ma_juz || []).concat(dane.ma_juz_na_stronie || []), obserwacje: a.obserwacje || [], pomysly: pomysly, uzasadnienie: a.uzasadnienie }, glowny: glowny, ekstra: ekstra, typ: typ, otwarcie: otwarcie, ocena_leada: ocenaLeada } }];"
+      },
+      "id": "407be3b3-dff3-43bf-bf10-c858d92e9809",
+      "name": "Sprawdź analizę",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6496,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "65af595e-cf9a-4963-a1e8-6b0b7d5ce535",
+      "name": "Firma pasuje?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        6720,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_wysylki",
+          "cachedResultName": "cm_wysylki"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "typ",
+              "keyValue": "pierwszy"
+            }
+          ]
+        },
+        "limit": 12,
+        "orderBy": true
+      },
+      "id": "8c90477c-e48c-43c5-9ffa-b9cbbe5a0a9e",
+      "name": "Pobierz ostatnie maile",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        6944,
+        896
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "status",
+              "keyValue": "gotowa"
+            }
+          ]
+        },
+        "limit": 12,
+        "orderBy": true
+      },
+      "id": "2971f0d6-6dc4-4426-a202-135957157682",
+      "name": "Pobierz maile w kolejce",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        7168,
+        896
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const w = $('Wybrana firma').first().json;\nconst a = $('Sprawdź analizę').first().json;\nconst ust = {};\n$('Pobierz ustawienia').all().forEach(function (i) { if (i.json && i.json.klucz) ust[i.json.klucz] = i.json.wartosc; });\nconst teksty = $('Pobierz ostatnie maile').all().concat($('Pobierz maile w kolejce').all()).map(function (i) { return String((i.json || {}).tresc || ''); }).filter(Boolean);\nconst otwarcia = teksty.map(function (t) { const l = t.split('\\n').map(function (x) { return x.trim(); }).filter(Boolean); return (l[1] || l[0] || '').slice(0, 220); }).filter(Boolean);\nconst losuj = function (arr) { return arr[Math.floor(Math.random() * arr.length)]; };\nconst potasuj = function (arr) { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; };\nconst UNIWERSALNE = [\n  'porządkowanie faktur i dokumentów, które same trafiają tam, gdzie trzeba',\n  'szybkie odpowiedzi na proste pytania klientów, także wieczorem i w weekend',\n  'automatyczne przypomnienia o terminach, płatnościach i spotkaniach',\n  'zbieranie zapytań od klientów w jednym miejscu, żeby żadne nie zginęło',\n  'krótki raport dla właściciela, co się dzieje w firmie, bez ręcznego liczenia',\n  'przepisywanie danych z maili i formularzy, które dziś robi się ręcznie'\n];\nconst styl = {\n  powitanie: losuj(['Dzień dobry,', 'Dzień dobry,', 'Dzień dobry,', 'Witam,']),\n  porownanie: losuj([\n    'jak dodatkowy pracownik, który nigdy się nie męczy i działa całą dobę',\n    'jak pomocnik, który sam robi nudne, powtarzalne zadania, a ludzie mają czas na ważniejsze rzeczy',\n    'coś jak cyfrowy asystent, który bez przerwy pilnuje prostych, powtarzalnych spraw',\n    'jak dodatkowa para rąk do pracy, tylko że działa sama, bez urlopów i przerw'\n  ]),\n  korzysci: losuj([\n    'oszczędność czasu, szybsza obsługa klientów i przewaga nad konkurencją',\n    'mniej pracy przy papierach, szybsze odpowiedzi dla klientów i przewaga nad konkurencją',\n    'przewaga nad konkurencją, więcej czasu na klientów i mniej rzeczy, o których trzeba pamiętać',\n    'więcej zadowolonych klientów, mniej ręcznej roboty i przewaga nad firmami, które jeszcze tego nie mają'\n  ]),\n  cena: losuj([\n    'buduję teraz portfolio, dlatego robię to taniej niż zwykle',\n    'zbieram teraz realizacje do portfolio, więc cena jest niższa niż standardowo',\n    'rozwijam portfolio, dlatego pierwsze wdrożenia robię w niższej cenie'\n  ]),\n  pytanie: losuj([\n    'Mogę za darmo przygotować krótką rozpiskę, co dokładnie dałoby się usprawnić w Państwa firmie. Czy mogę ją przesłać?',\n    'Mogę bezpłatnie rozpisać, co konkretnie dałoby się u Państwa zautomatyzować. Czy mogę przesłać taką rozpiskę?',\n    'Chętnie przygotuję za darmo krótką listę rzeczy, które dałoby się u Państwa usprawnić. Czy mogę ją wysłać?'\n  ]),\n  uniwersalne: potasuj(UNIWERSALNE).slice(0, 3)\n};\nconst instrukcja = [\n  'Piszesz pierwszego maila w imieniu Phillipa Mrozika (MrozikDigital) do firmy, która go nie zna.',\n  'Pisz BARDZO prostym językiem, tak jakbyś tłumaczył babci: krótkie zdania, zwykłe słowa, zero słów technicznych. Mail ma zachęcać i być pozytywny.',\n  'UKŁAD MAILA (zawsze w tej kolejności, akapity oddzielone pustą linią):',\n  '1. Pierwsza linia: powitanie z danych (styl.powitanie).',\n  '2. Akapit: nazywam się Phillip Mrozik i zajmuję się automatyzacją AI. Zaraz potem jedno proste zdanie, czym to jest, z porównaniem z danych (styl.porownanie). Wyrażenie automatyzacja AI (w dowolnej odmianie) ma się pojawić DOKŁADNIE RAZ w całym mailu.',\n  '3. Akapit (1-2 zdania): co firma z tego ma, na podstawie styl.korzysci. Pisz ogólnie, że firmy, które z tego korzystają, to zyskują. Zawsze wprost użyj słów przewaga nad konkurencją. Bez liczb i procentów.',\n  '4. Akapit: jedno zdanie wprowadzające typu W [branża w miejscowniku, np. biurze rachunkowym, gabinecie stomatologicznym] mogę ustawić na przykład: a pod nim DOKŁADNIE 3 punkty, każdy w osobnej linii zaczynającej się od \"- \", z małej litery, krótkie (do 12 słów), oddzielone przecinkami, ostatni bez kropki:',\n  '   - pierwszy punkt: rzecz typowa dla tej branży, oparta na glowny (prostymi słowami, bez wyjaśniania technicznego),',\n  '   - drugi i trzeci punkt: dwie rzeczy, które ma każda firma, wybrane z styl.uniwersalne (możesz lekko przeformułować). Nie powtarzaj tego, co jest w pierwszym punkcie.',\n  '5. Akapit: zdanie o cenie oparte na styl.cena, potem pytanie końcowe oparte na styl.pytanie. Mail kończy się pytajnikiem.',\n  'ZAKAZANE:',\n  '- zgadywanie i przypuszczenia o firmie: pewnie, chyba, myślę, wydaje mi się, być może, czy u Państwa też, zapewne;',\n  '- pisanie, że coś u nich zauważyłeś, przeczytałeś na stronie albo w opiniach; nie cytuj strony ani opinii;',\n  '- formułki: w praktyce, oznacza to, przy okazji, dzięki czemu, z tej strony, krótko się przedstawię, trafiłem, zwróciłem uwagę;',\n  '- pytania z jednego słowa (Przesłać? Wysłać? Rozpisać?);',\n  '- proponowanie strony internetowej, SEO, reklam, social mediów;',\n  '- słowa: workflow, integracja, API, n8n, CRM, chatbot, system, algorytm;',\n  '- wykrzykniki, emotikony, Szanowni Państwo, imiona osób, liczby, procenty, obietnice bez pokrycia, cenniki;',\n  '- długie myślniki (—, –);',\n  '- podpis, pozdrowienia i link (zostaną dodane automatycznie).',\n  'Zwracaj się per Państwo. Długość całości: 90-140 słów.',\n  'Sens maila zawsze ten sam, ale układaj zdania własnymi słowami, inaczej niż w maile z listy ostatnie_otwarcia. Nie kopiuj z nich zdań.',\n  'Nie proponuj w punktach rzeczy z listy ma_juz.'\n].join('\\n');\n\nconst instrukcjaPelna = ust.wnioski_stylu ? instrukcja + '\\nWNIOSKI Z POPRZEDNICH KAMPANII (stosuj tylko, jeśli nie łamią zasad powyżej): ' + ust.wnioski_stylu : instrukcja;\nconst dane = {\n  firma: { nazwa: w.firma.nazwa, miasto: w.firma.miasto, branza: w.firma.branza },\n  glowny: { tytul: a.glowny.tytul, opis: a.glowny.opis_dla_klienta },\n  ma_juz: a.analiza.ma_juz,\n  styl: styl,\n  ostatnie_otwarcia: otwarcia.slice(0, 15)\n};\nconst schemat = { type: 'object', additionalProperties: false, required: ['tresc'], properties: { tresc: { type: 'string' } } };\nreturn [{ json: { styl: styl, dane: dane, instrukcja: instrukcjaPelna, teksty_porownawcze: teksty.slice(0, 24), zapytanie: { model: 'gpt-5.5', reasoning: { effort: 'medium' }, input: [{ role: 'system', content: instrukcjaPelna }, { role: 'user', content: JSON.stringify(dane) }], text: { format: { type: 'json_schema', name: 'mail', strict: true, schema: schemat } } } } }];",
+        "parameters": {
+          "jsCode": "const w = $('Wybrana firma').first().json;\nconst a = $('Sprawdź analizę').first().json;\nconst ust = {};\n$('Pobierz ustawienia').all().forEach(function (i) { if (i.json && i.json.klucz) ust[i.json.klucz] = i.json.wartosc; });\nconst teksty = $('Pobierz ostatnie maile').all().concat($('Pobierz maile w kolejce').all()).map(function (i) { return String((i.json || {}).tresc || ''); }).filter(Boolean);\nconst otwarcia = teksty.map(function (t) { const l = t.split('\\n').map(function (x) { return x.trim(); }).filter(Boolean); return (l[2] || l[1] || l[0] || '').slice(0, 220); }).filter(Boolean);\nconst losuj = function (arr) { return arr[Math.floor(Math.random() * arr.length)]; };\nconst potasuj = function (arr) { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; };\nconst UNIWERSALNE = [\n  'porządkowanie faktur i dokumentów, które same trafiają tam, gdzie trzeba',\n  'szybkie odpowiedzi na proste pytania klientów, także wieczorem i w weekend',\n  'automatyczne przypomnienia o terminach, płatnościach i spotkaniach',\n  'zbieranie zapytań od klientów w jednym miejscu, żeby żadne nie zginęło',\n  'krótki raport dla właściciela, co się dzieje w firmie, bez ręcznego liczenia',\n  'przepisywanie danych z maili i formularzy, które dziś robi się ręcznie'\n];\nconst styl = {\n  powitanie: losuj(['Dzień dobry,', 'Dzień dobry,', 'Dzień dobry,', 'Witam,']),\n  porownanie: losuj([\n    'jak dodatkowy pracownik, który nigdy się nie męczy i działa całą dobę',\n    'jak pomocnik, który sam robi nudne, powtarzalne zadania, a ludzie mają czas na ważniejsze rzeczy',\n    'coś jak cyfrowy asystent, który bez przerwy pilnuje prostych, powtarzalnych spraw',\n    'jak dodatkowa para rąk do pracy, tylko że działa sama, bez urlopów i przerw'\n  ]),\n  korzysci: losuj([\n    'więcej klientów i większe zyski, bo zamiast siedzieć nad papierami skupiają się na tym, co przynosi pieniądze; przewaga nad konkurencją, która robi wszystko ręcznie',\n    'obsługują więcej klientów i więcej zarabiają, bo zamiast tracić godziny na powtarzalną pracę skupiają się na rozwoju i na klientach; wyprzedzają konkurencję',\n    'zdobywają więcej klientów i mają większe zyski, bo nie marnują czasu na papierologię, tylko zajmują się tym, na czym zarabiają; wyraźna przewaga nad konkurencją'\n  ]),\n  wstep: losuj(['Na czym to polega?', 'Co to właściwie znaczy?', 'Jak to działa?', 'Na czym to polega w prostych słowach?']),\n  przyklady_reczne: potasuj(['przepisuje dane', 'wysyła te same wiadomości', 'szuka dokumentów', 'odpisuje na te same pytania', 'pilnuje terminów', 'dzwoni z przypomnieniami', 'wpisuje dane do komputera']).slice(0, 3),\n  cena: losuj([\n    'buduję teraz portfolio, dlatego robię to taniej niż zwykle',\n    'zbieram teraz realizacje do portfolio, więc cena jest niższa niż standardowo',\n    'rozwijam portfolio, dlatego pierwsze wdrożenia robię w niższej cenie'\n  ]),\n  pytanie: losuj([\n    'Mogę za darmo przygotować krótką rozpiskę, co dokładnie dałoby się usprawnić w Państwa firmie. Czy mogę ją przesłać?',\n    'Mogę bezpłatnie rozpisać, co konkretnie dałoby się u Państwa zautomatyzować. Czy mogę przesłać taką rozpiskę?',\n    'Chętnie przygotuję za darmo krótką listę rzeczy, które dałoby się u Państwa usprawnić. Czy mogę ją wysłać?'\n  ]),\n  uniwersalne: potasuj(UNIWERSALNE).slice(0, 3)\n};\nconst instrukcja = [\n  'Piszesz pierwszego maila w imieniu Phillipa Mrozika (MrozikDigital) do firmy, która go nie zna.',\n  'Pisz BARDZO prostym językiem, tak jakbyś tłumaczył babci: krótkie zdania, zwykłe słowa, zero słów technicznych. Mail ma zachęcać i być pozytywny.',\n  'UKŁAD MAILA (zawsze w tej kolejności, akapity oddzielone pustą linią):',\n  '1. Pierwsza linia: powitanie z danych (styl.powitanie).',\n  '2. Akapit z jednym zdaniem: nazywam się Phillip Mrozik i zajmuję się automatyzacją AI. Wyrażenie automatyzacja AI (z literami AI) ma się pojawić DOKŁADNIE RAZ w całym mailu, dalej pisz samo automatyzacja.',\n  '3. Akapit wyjaśnienia, tłumacz jak babci, 3-4 krótkie zdania. Zacznij od pytania z danych (styl.wstep). Potem: w każdej firmie są zadania, które ktoś codziennie robi ręcznie przy komputerze lub telefonie (podaj 2-3 proste przykłady z styl.przyklady_reczne, inne niż punkty niżej). Potem: automatyzacja sprawia, że te rzeczy dzieją się same, szybko i bez błędów. Na koniec: ludzie przestają tracić na nie czas. Nie pisz o programach, systemach ani o tym, że coś ustawiasz.',\n  '4. Akapit korzyści, 2-3 zdania, na podstawie styl.korzysci. Pisz o firmach, które już z tego korzystają. ZAWSZE wprost: mają więcej klientów i większe zyski (lub więcej zarabiają); powód: nie tracą godzin na ręczną pracę przy komputerze, tylko skupiają się na klientach i rozwoju firmy; i to daje im przewagę nad konkurencją, która dalej robi wszystko ręcznie (poprawna odmiana: daje im przewagę, zyskują przewagę). Bez liczb i procentów.',\n  '5. Akapit: jedno zdanie wprowadzające typu W [branża w miejscowniku, np. biurze rachunkowym, gabinecie stomatologicznym] mogę ustawić na przykład: a pod nim DOKŁADNIE 3 punkty, każdy w osobnej linii zaczynającej się od \"- \", z małej litery, krótkie (do 12 słów), oddzielone przecinkami, ostatni bez kropki:',\n  '   - pierwszy punkt: rzecz typowa dla tej branży, oparta na glowny (prostymi słowami, bez wyjaśniania technicznego),',\n  '   - drugi i trzeci punkt: dwie rzeczy, które ma każda firma, wybrane z styl.uniwersalne (możesz lekko przeformułować). Nie powtarzaj tego, co jest w pierwszym punkcie.',\n  '6. Akapit: zdanie o cenie oparte na styl.cena, potem pytanie końcowe oparte na styl.pytanie. Mail kończy się pytajnikiem.',\n  'ZAKAZANE:',\n  '- zgadywanie i przypuszczenia o firmie: pewnie, chyba, myślę, wydaje mi się, być może, czy u Państwa też, zapewne;',\n  '- pisanie, że coś u nich zauważyłeś, przeczytałeś na stronie albo w opiniach; nie cytuj strony ani opinii;',\n  '- formułki: w praktyce, oznacza to, przy okazji, dzięki czemu, z tej strony, krótko się przedstawię, trafiłem, zwróciłem uwagę;',\n  '- pytania z jednego słowa (Przesłać? Wysłać? Rozpisać?);',\n  '- proponowanie strony internetowej, SEO, reklam, social mediów;',\n  '- słowa: workflow, integracja, API, n8n, CRM, chatbot, system, algorytm;',\n  '- wykrzykniki, emotikony, Szanowni Państwo, imiona osób, liczby, procenty, obietnice bez pokrycia, cenniki;',\n  '- długie myślniki (—, –);',\n  '- podpis, pozdrowienia i link (zostaną dodane automatycznie).',\n  'Zwracaj się per Państwo. Długość całości: 130-170 słów.',\n  'WAŻNE: opisy w punktach 3 i 4 to tylko SENS, nie gotowe zdania. Nie przepisuj ich słowo w słowo, za każdym razem ułóż zdania inaczej (inna kolejność, inne słowa), ale tak samo prosto. Pierwsze zdanie też możesz ułożyć po swojemu (np. zajmuję się automatyzacją AI, moja praca to automatyzacja AI).',\n  'Sens maila zawsze ten sam, ale układaj zdania własnymi słowami, inaczej niż w mailach z listy ostatnie_otwarcia. Nie kopiuj z nich zdań.',\n  'Nie proponuj w punktach rzeczy z listy ma_juz.'\n].join('\\n');\n\nconst instrukcjaPelna = ust.wnioski_stylu ? instrukcja + '\\nWNIOSKI Z POPRZEDNICH KAMPANII (stosuj tylko, jeśli nie łamią zasad powyżej): ' + ust.wnioski_stylu : instrukcja;\nconst dane = {\n  firma: { nazwa: w.firma.nazwa, miasto: w.firma.miasto, branza: w.firma.branza },\n  glowny: { tytul: a.glowny.tytul, opis: a.glowny.opis_dla_klienta },\n  ma_juz: a.analiza.ma_juz,\n  styl: styl,\n  ostatnie_otwarcia: otwarcia.slice(0, 15)\n};\nconst schemat = { type: 'object', additionalProperties: false, required: ['tresc'], properties: { tresc: { type: 'string' } } };\nreturn [{ json: { styl: styl, dane: dane, instrukcja: instrukcjaPelna, teksty_porownawcze: teksty.slice(0, 24), zapytanie: { model: 'gpt-5.5', reasoning: { effort: 'medium' }, input: [{ role: 'system', content: instrukcjaPelna }, { role: 'user', content: JSON.stringify(dane) }], text: { format: { type: 'json_schema', name: 'mail', strict: true, schema: schemat } } } } }];"
+        }
+      },
+      "id": "87af7318-43e7-4833-8467-5d67d89a2ea9",
+      "name": "Przygotuj pisanie maila",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7392,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ Object.assign({}, $('Przygotuj pisanie maila').first().json.zapytanie, { service_tier: 'flex' }) }}",
+        "options": {
+          "timeout": 900000
+        }
+      },
+      "id": "30e6092c-c7e5-4517-8eb3-97d54dd1349f",
+      "name": "AI: napisz maila",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        7616,
+        896
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const sprawdzMail = function (surowy, porownawcze) {\n  let tresc = String(surowy || '').replace(/\\r/g, '').replace(/[ \\t]+\\n/g, '\\n').replace(/\\n{3,}/g, '\\n\\n').trim();\n  tresc = tresc.replace(/\\n*(pozdrawiam|z pozdrowieniami|z wyrazami|łączę pozdrowienia)[\\s\\S]*$/i, '').trim();\n  tresc = tresc.replace(/\\n*(moje realizacje|www\\.mrozikdigital|https?:\\/\\/)[\\s\\S]*$/i, '').trim();\n  tresc = tresc.replace(/ [—–] /g, ', ').replace(/[—–]/g, '-');\n  tresc = tresc.split('\\n').map(function (l) { return l.replace(/^\\s*[•*·]\\s+/, '- ').replace(/^\\s*-\\s*/, function (m) { return m.trim() === '-' ? '- ' : m; }); }).join('\\n');\n  const problemy = [];\n  const slowa = tresc.split(/\\s+/).filter(Boolean).length;\n  if (slowa < 75 || slowa > 165) problemy.push('Długość ' + slowa + ' słów, ma być 90-140.');\n  const punkty = tresc.split('\\n').filter(function (l) { return /^- /.test(l); });\n  if (punkty.length !== 3) problemy.push('Mają być dokładnie 3 punkty zaczynające się od \"- \" (jest ' + punkty.length + ').');\n  if (punkty.some(function (p) { return p.split(/\\s+/).length > 16; })) problemy.push('Punkty mają być krótkie (do 12 słów).');\n  const auto = (tresc.match(/automatyzac[a-ząćęłńóśźż]*\\s+(z\\s+)?(wykorzystaniem\\s+)?AI/gi) || []).length;\n  if (auto !== 1) problemy.push('Wyrażenie automatyzacja AI musi wystąpić dokładnie raz (jest ' + auto + ').');\n  if (!/Phillip Mrozik/.test(tresc)) problemy.push('Brak przedstawienia się jako Phillip Mrozik.');\n  if (!/(konkurencj|przewag|wyróżni|na tle|niż inn|niż firmy)/i.test(tresc)) problemy.push('Brak wzmianki o przewadze nad konkurencją.');\n  if (!/(taniej|niższ|niżej)/i.test(tresc) || !/(portfoli|realizacj|przykład)/i.test(tresc)) problemy.push('Brak zdania o niższej cenie przez budowanie portfolio.');\n  if (!/\\?\\s*$/.test(tresc)) problemy.push('Mail ma się kończyć pytaniem.');\n  if (/(^|\\n)\\s*(przesłać|wysłać|rozpisać)\\?\\s*$/i.test(tresc) || /[.?]\\s+(Przesłać|Wysłać|Rozpisać)\\?\\s*$/.test(tresc)) problemy.push('Pytanie końcowe ma być pełnym zdaniem, nie jednym słowem.');\n  const maly = ' ' + tresc.toLowerCase().replace(/[^a-ząćęłńóśźż0-9 ]+/g, ' ').replace(/\\s+/g, ' ') + ' ';\n  const ZAKAZANE = ['pewnie', 'chyba', 'myślę', 'wydaje mi się', 'być może', 'zapewne', 'czy u państwa też', 'w praktyce', 'oznacza to', 'przy okazji', 'dzięki czemu', 'z tej strony', 'krótko się przedstawię', 'trafiłem', 'zwróciłem uwagę', 'zauważyłem', 'przeczytałem', 'na państwa stronie', 'w opiniach'];\n  const znalezione = ZAKAZANE.filter(function (z) { return maly.indexOf(' ' + z + ' ') !== -1; });\n  if (znalezione.length) problemy.push('Zakazane zwroty: ' + znalezione.join(', ') + '.');\n  if (/(stron[aęyi]\\s+(internetow|www)|now[aąej]+\\s+stron|witryn|\\bseo\\b|pozycjonow|social\\s*media|reklam[ay]\\s+w\\s+(google|facebook))/i.test(tresc)) problemy.push('Mail proponuje stronę internetową lub marketing.');\n  if (/(workflow|integracj|\\bAPI\\b|\\bn8n\\b|\\bCRM\\b|chatbot|\\bsystem|algorytm)/i.test(tresc)) problemy.push('Techniczne słowa w treści.');\n  if (/!/.test(tresc)) problemy.push('Wykrzyknik w treści.');\n  if (/szanowni/i.test(tresc)) problemy.push('Szanowni Państwo jest zakazane.');\n  if (/małym firmom|małe firmy/i.test(tresc)) problemy.push('Nie pisać o małych firmach.');\n  if (/\\d+\\s*%|\\bproc(ent|\\.)/i.test(tresc)) problemy.push('Bez liczb i procentów.');\n  if (/[\\[\\]{}]|XXX|\\(nazwa/i.test(tresc)) problemy.push('Pozostały znaczniki do uzupełnienia.');\n  if (/\\p{Extended_Pictographic}/u.test(tresc)) problemy.push('Emotikony w treści.');\n  const trigramy = function (t) { const s = String(t).toLowerCase().replace(/[^a-ząćęłńóśźż0-9 ]/g, ' ').split(/\\s+/).filter(Boolean); const o = {}; for (let i = 0; i + 2 < s.length; i++) o[s[i] + ' ' + s[i + 1] + ' ' + s[i + 2]] = true; return o; };\n  const moje = trigramy(tresc);\n  let maxPodob = 0;\n  (porownawcze || []).forEach(function (inny) {\n    const t2 = trigramy(String(inny).replace(/\\n*(pozdrawiam|z pozdrowieniami)[\\s\\S]*$/i, ''));\n    const a = Object.keys(moje); const b = Object.keys(t2);\n    if (!a.length || !b.length) return;\n    const podob = a.filter(function (x) { return t2[x]; }).length / Math.min(a.length, b.length);\n    if (podob > maxPodob) maxPodob = podob;\n  });\n  if (maxPodob > 0.75) problemy.push('Mail jest za bardzo podobny do wcześniejszego (' + Math.round(maxPodob * 100) + '% wspólnych fraz), ułóż zdania inaczej.');\n  return { tresc: tresc, problemy: problemy, slowa: slowa };\n};\n\nconst PORZADEK = $('Przygotuj pisanie maila').first().json;\nconst odczyt = function (odp) { let t = ''; (odp.output || []).forEach(function (o) { if (o.type === 'message') (o.content || []).forEach(function (c) { if (c.type === 'output_text') t = c.text; }); }); return t; };\nconst tekstAI = odczyt($input.first().json);\nif (!tekstAI) throw new Error('AI nie zwróciło treści maila');\nconst wynik = sprawdzMail(JSON.parse(tekstAI).tresc, PORZADEK.teksty_porownawcze);\nconst a = $('Sprawdź analizę').first().json;\nconst w = $('Wybrana firma').first().json;\nconst instrukcjaKontroli = [\n  'Jesteś surowym kontrolerem jakości maili cold mailingowych. Oceniasz jeden mail przed wysyłką do polskiej firmy.',\n  'Sprawdź: 1) czy jest napisany BARDZO prostym językiem, zrozumiałym nawet dla starszej osoby, krótkimi zdaniami, 2) czy nie ma błędów językowych i dziwnej składni, 3) czy czyta się jak normalny, życzliwy mail od człowieka, a nie jak spam albo bot, 4) czy NIE zgaduje niczego o firmie (pewnie, chyba, czy u Państwa też) i nie powołuje się na ich stronę ani opinie, 5) czy po przedstawieniu się jest jedno proste wyjaśnienie, czym jest automatyzacja AI, 6) czy mówi o korzyściach: przewaga nad konkurencją, czas, klienci, bez wymyślonych liczb, 7) czy są dokładnie 3 krótkie punkty: pierwszy typowy dla tej branży, dwa pozostałe ogólne dla każdej firmy, i czy pasują do tej branży, 8) czy jest uczciwe zdanie o niższej cenie przez budowanie portfolio, 9) czy kończy się pełnym pytaniem o darmową rozpiskę, 10) czy NIE proponuje strony internetowej, SEO ani marketingu.',\n  'ocena 1-10: 10 = gotowy do wysłania bez poprawek. Mail, który zgaduje albo brzmi jak bot, dostaje maksymalnie 6. Mail z wymyślonym faktem o firmie lub propozycją strony dostaje maksymalnie 3.',\n  'twierdzi_cos_nieznalezionego = true, gdy mail twierdzi coś konkretnego o tej firmie. poprawki: konkretne wskazówki, co zmienić (pusty tekst, gdy ocena 9-10). Pisz po polsku.'\n].join('\\n');\nconst dane = { mail: wynik.tresc, firma: { nazwa: w.firma.nazwa, branza: w.firma.branza, miasto: w.firma.miasto }, glowny: a.glowny.tytul, ma_juz: a.analiza.ma_juz };\nconst schemat = { type: 'object', additionalProperties: false, required: ['ocena', 'twierdzi_cos_nieznalezionego', 'proponuje_strone', 'problemy', 'poprawki'], properties: { ocena: { type: 'integer' }, twierdzi_cos_nieznalezionego: { type: 'boolean' }, proponuje_strone: { type: 'boolean' }, problemy: { type: 'array', items: { type: 'string' } }, poprawki: { type: 'string' } } };\nreturn [{ json: { tresc: wynik.tresc, problemy_techniczne: wynik.problemy, zapytanie: { model: 'gpt-5.5', reasoning: { effort: 'low' }, input: [{ role: 'system', content: instrukcjaKontroli }, { role: 'user', content: JSON.stringify(dane) }], text: { format: { type: 'json_schema', name: 'kontrola', strict: true, schema: schemat } } } } }];",
+        "parameters": {
+          "jsCode": "const sprawdzMail = function (surowy, porownawcze) {\n  let tresc = String(surowy || '').replace(/\\r/g, '').replace(/[ \\t]+\\n/g, '\\n').replace(/\\n{3,}/g, '\\n\\n').trim();\n  tresc = tresc.replace(/\\n*(pozdrawiam|z pozdrowieniami|z wyrazami|łączę pozdrowienia)[\\s\\S]*$/i, '').trim();\n  tresc = tresc.replace(/\\n*(moje realizacje|www\\.mrozikdigital|https?:\\/\\/)[\\s\\S]*$/i, '').trim();\n  tresc = tresc.replace(/ [—–] /g, ', ').replace(/[—–]/g, '-');\n  tresc = tresc.split('\\n').map(function (l) { return l.replace(/^\\s*[•*·]\\s+/, '- ').replace(/^\\s*-\\s*/, function (m) { return m.trim() === '-' ? '- ' : m; }); }).join('\\n');\n  const problemy = [];\n  const slowa = tresc.split(/\\s+/).filter(Boolean).length;\n  if (slowa < 110 || slowa > 195) problemy.push('Długość ' + slowa + ' słów, ma być 130-170.');\n  const punkty = tresc.split('\\n').filter(function (l) { return /^- /.test(l); });\n  if (punkty.length !== 3) problemy.push('Mają być dokładnie 3 punkty zaczynające się od \"- \" (jest ' + punkty.length + ').');\n  if (punkty.some(function (p) { return p.split(/\\s+/).length > 16; })) problemy.push('Punkty mają być krótkie (do 12 słów).');\n  const auto = (tresc.match(/automatyzac[a-ząćęłńóśźż]*\\s+(z\\s+)?(wykorzystaniem\\s+)?AI/gi) || []).length;\n  if (auto !== 1) problemy.push('Wyrażenie automatyzacja AI musi wystąpić dokładnie raz (jest ' + auto + ').');\n  if (!/Phillip Mrozik/.test(tresc)) problemy.push('Brak przedstawienia się jako Phillip Mrozik.');\n  if (!/konkurencj/i.test(tresc)) problemy.push('Brak wzmianki o przewadze nad konkurencją.');\n  if (!/(więcej|nowych)[^.?]{0,30}klient|klient[^.?]{0,20}więcej/i.test(tresc)) problemy.push('Brak wprost: więcej klientów.');\n  if (!/(zysk|zarabia|zarobi|zarobk)/i.test(tresc)) problemy.push('Brak wprost: większe zyski.');\n  if (!/(taniej|niższ|niżej)/i.test(tresc) || !/(portfoli|realizacj|przykład)/i.test(tresc)) problemy.push('Brak zdania o niższej cenie przez budowanie portfolio.');\n  if (!/\\?\\s*$/.test(tresc)) problemy.push('Mail ma się kończyć pytaniem.');\n  if (/(^|\\n)\\s*(przesłać|wysłać|rozpisać)\\?\\s*$/i.test(tresc) || /[.?]\\s+(Przesłać|Wysłać|Rozpisać)\\?\\s*$/.test(tresc)) problemy.push('Pytanie końcowe ma być pełnym zdaniem, nie jednym słowem.');\n  const maly = ' ' + tresc.toLowerCase().replace(/[^a-ząćęłńóśźż0-9 ]+/g, ' ').replace(/\\s+/g, ' ') + ' ';\n  const ZAKAZANE = ['pewnie', 'chyba', 'myślę', 'wydaje mi się', 'być może', 'zapewne', 'czy u państwa też', 'w praktyce', 'oznacza to', 'przy okazji', 'dzięki czemu', 'z tej strony', 'krótko się przedstawię', 'trafiłem', 'zwróciłem uwagę', 'zauważyłem', 'przeczytałem', 'na państwa stronie', 'w opiniach'];\n  const znalezione = ZAKAZANE.filter(function (z) { return maly.indexOf(' ' + z + ' ') !== -1; });\n  if (znalezione.length) problemy.push('Zakazane zwroty: ' + znalezione.join(', ') + '.');\n  if (/(stron[aęyi]\\s+(internetow|www)|now[aąej]+\\s+stron|witryn|\\bseo\\b|pozycjonow|social\\s*media|reklam[ay]\\s+w\\s+(google|facebook))/i.test(tresc)) problemy.push('Mail proponuje stronę internetową lub marketing.');\n  if (/(workflow|integracj|\\bAPI\\b|\\bn8n\\b|\\bCRM\\b|chatbot|\\bsystem|algorytm)/i.test(tresc)) problemy.push('Techniczne słowa w treści.');\n  if (/!/.test(tresc)) problemy.push('Wykrzyknik w treści.');\n  if (/szanowni/i.test(tresc)) problemy.push('Szanowni Państwo jest zakazane.');\n  if (/małym firmom|małe firmy/i.test(tresc)) problemy.push('Nie pisać o małych firmach.');\n  if (/\\d+\\s*%|\\bproc(ent|\\.)/i.test(tresc)) problemy.push('Bez liczb i procentów.');\n  if (/[\\[\\]{}]|XXX|\\(nazwa/i.test(tresc)) problemy.push('Pozostały znaczniki do uzupełnienia.');\n  if (/\\p{Extended_Pictographic}/u.test(tresc)) problemy.push('Emotikony w treści.');\n  const trigramy = function (t) { const s = String(t).toLowerCase().replace(/[^a-ząćęłńóśźż0-9 ]/g, ' ').split(/\\s+/).filter(Boolean); const o = {}; for (let i = 0; i + 2 < s.length; i++) o[s[i] + ' ' + s[i + 1] + ' ' + s[i + 2]] = true; return o; };\n  const moje = trigramy(tresc);\n  let maxPodob = 0;\n  (porownawcze || []).forEach(function (inny) {\n    const t2 = trigramy(String(inny).replace(/\\n*(pozdrawiam|z pozdrowieniami)[\\s\\S]*$/i, ''));\n    const a = Object.keys(moje); const b = Object.keys(t2);\n    if (!a.length || !b.length) return;\n    const podob = a.filter(function (x) { return t2[x]; }).length / Math.min(a.length, b.length);\n    if (podob > maxPodob) maxPodob = podob;\n  });\n  if (maxPodob > 0.75) problemy.push('Mail jest za bardzo podobny do wcześniejszego (' + Math.round(maxPodob * 100) + '% wspólnych fraz), ułóż zdania inaczej.');\n  return { tresc: tresc, problemy: problemy, slowa: slowa };\n};\n\nconst PORZADEK = $('Przygotuj pisanie maila').first().json;\nconst odczyt = function (odp) { let t = ''; (odp.output || []).forEach(function (o) { if (o.type === 'message') (o.content || []).forEach(function (c) { if (c.type === 'output_text') t = c.text; }); }); return t; };\nconst tekstAI = odczyt($input.first().json);\nif (!tekstAI) throw new Error('AI nie zwróciło treści maila');\nconst wynik = sprawdzMail(JSON.parse(tekstAI).tresc, PORZADEK.teksty_porownawcze);\nconst a = $('Sprawdź analizę').first().json;\nconst w = $('Wybrana firma').first().json;\nconst instrukcjaKontroli = [\n  'Jesteś surowym kontrolerem jakości maili cold mailingowych. Oceniasz jeden mail przed wysyłką do polskiej firmy.',\n  'Sprawdź: 1) czy jest napisany BARDZO prostym językiem, zrozumiałym nawet dla starszej osoby, krótkimi zdaniami, 2) czy nie ma błędów językowych i dziwnej składni, 3) czy czyta się jak normalny, życzliwy mail od człowieka, a nie jak spam albo bot, 4) czy NIE zgaduje niczego o firmie (pewnie, chyba, czy u Państwa też) i nie powołuje się na ich stronę ani opinie, 5) czy po przedstawieniu się jest osobny akapit, który jak babci tłumaczy, czym jest automatyzacja (co ludzie dziś robią ręcznie i że to dzieje się samo), 6) czy w korzyściach są wprost: więcej klientów, większe zyski i przewaga nad konkurencją, z powodem (nie tracą czasu na ręczną pracę, skupiają się na biznesie), bez wymyślonych liczb, 7) czy są dokładnie 3 krótkie punkty: pierwszy typowy dla tej branży, dwa pozostałe ogólne dla każdej firmy, i czy pasują do tej branży, 8) czy jest uczciwe zdanie o niższej cenie przez budowanie portfolio, 9) czy kończy się pełnym pytaniem o darmową rozpiskę, 10) czy NIE proponuje strony internetowej, SEO ani marketingu.',\n  'ocena 1-10: 10 = gotowy do wysłania bez poprawek. Mail, który zgaduje albo brzmi jak bot, dostaje maksymalnie 6. Mail z wymyślonym faktem o firmie lub propozycją strony dostaje maksymalnie 3.',\n  'twierdzi_cos_nieznalezionego = true, gdy mail twierdzi coś konkretnego o tej firmie. poprawki: konkretne wskazówki, co zmienić (pusty tekst, gdy ocena 9-10). Pisz po polsku.'\n].join('\\n');\nconst dane = { mail: wynik.tresc, firma: { nazwa: w.firma.nazwa, branza: w.firma.branza, miasto: w.firma.miasto }, glowny: a.glowny.tytul, ma_juz: a.analiza.ma_juz };\nconst schemat = { type: 'object', additionalProperties: false, required: ['ocena', 'twierdzi_cos_nieznalezionego', 'proponuje_strone', 'problemy', 'poprawki'], properties: { ocena: { type: 'integer' }, twierdzi_cos_nieznalezionego: { type: 'boolean' }, proponuje_strone: { type: 'boolean' }, problemy: { type: 'array', items: { type: 'string' } }, poprawki: { type: 'string' } } };\nreturn [{ json: { tresc: wynik.tresc, problemy_techniczne: wynik.problemy, zapytanie: { model: 'gpt-5.5', reasoning: { effort: 'low' }, input: [{ role: 'system', content: instrukcjaKontroli }, { role: 'user', content: JSON.stringify(dane) }], text: { format: { type: 'json_schema', name: 'kontrola', strict: true, schema: schemat } } } } }];"
+        }
+      },
+      "id": "d5ace902-cdc1-487d-9899-661800d81d14",
+      "name": "Kontrola techniczna maila",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7840,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ Object.assign({}, $('Kontrola techniczna maila').first().json.zapytanie, { service_tier: 'flex' }) }}",
+        "options": {
+          "timeout": 900000
+        }
+      },
+      "id": "9510ffbf-1cc2-44c4-a244-94d12a3bb0ca",
+      "name": "AI: kontroler jakości",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        8064,
+        896
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const POPRZEDNI = $('Kontrola techniczna maila').first().json;\nconst odczyt = function (odp) { let t = ''; (odp.output || []).forEach(function (o) { if (o.type === 'message') (o.content || []).forEach(function (c) { if (c.type === 'output_text') t = c.text; }); }); return t; };\nconst k = JSON.parse(odczyt($input.first().json) || '{}');\nconst ocena = Math.max(1, Math.min(10, parseInt(k.ocena, 10) || 1));\nconst wszystkie = (POPRZEDNI.problemy_techniczne || []).concat(k.problemy || []);\nconst ok = ocena >= 8 && !k.twierdzi_cos_nieznalezionego && !k.proponuje_strone && (POPRZEDNI.problemy_techniczne || []).length === 0;\nconst p = $('Przygotuj pisanie maila').first().json;\nconst poprawka = { model: 'gpt-5.5', reasoning: { effort: 'medium' }, input: [\n  { role: 'system', content: p.instrukcja },\n  { role: 'user', content: JSON.stringify(p.dane) },\n  { role: 'assistant', content: JSON.stringify({ tresc: POPRZEDNI.tresc }) },\n  { role: 'user', content: 'Kontroler jakości odrzucił ten mail (ocena ' + ocena + '/10). Popraw go zgodnie z uwagami, zachowując wszystkie zasady. Uwagi: ' + wszystkie.join(' ') + ' ' + (k.poprawki || '') }\n], text: p.zapytanie.text };\nreturn [{ json: { ok: ok, tresc: POPRZEDNI.tresc, ocena: ocena, problemy: wszystkie, zapytanie_poprawki: poprawka } }];"
+      },
+      "id": "bdd4511e-affe-4fdd-bd5b-0601e4c43295",
+      "name": "Werdykt kontroli",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8288,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "37c260b7-2f31-44b6-a560-5be35674cb4f",
+      "name": "Mail zaakceptowany?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        8512,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const w = $('Wybrana firma').first().json;\nconst m = $input.first().json;\nconst a = $('Sprawdź analizę').first().json;\nconst d = $('Decyzja o mailu').first().json;\nconst podpisy = ['Pozdrawiam', 'Pozdrawiam serdecznie', 'Z pozdrowieniami'];\nconst podpis = podpisy[Math.floor(Math.random() * podpisy.length)] + '\\nPhillip Mrozik\\nMrozikDigital | 787 957 534\\nwww.mrozikdigital.com';\nconst tresc = m.tresc.trim() + '\\n\\n' + podpis;\nconst priorytet = a.ocena_leada * 10 + (a.typ === 'konkretny' ? 20 : 0) + m.ocena;\nreturn [{ json: {\n  id: w.firma.id, status: 'gotowa', powod: '', email: d.email, email_zrodlo: d.email_zrodlo,\n  pomysl_glowny: a.glowny.tytul, pomysl_ekstra: a.ekstra.tytul, typ_propozycji: a.typ, priorytet: priorytet,\n  temat: 'Propozycja współpracy', tresc: tresc, ocena_kontrolera: m.ocena\n} }];",
+        "parameters": {
+          "jsCode": "const w = $('Wybrana firma').first().json;\nconst m = $input.first().json;\nconst a = $('Sprawdź analizę').first().json;\nconst d = $('Decyzja o mailu').first().json;\nconst podpisy = ['Pozdrawiam', 'Pozdrawiam serdecznie', 'Z pozdrowieniami'];\nconst podpis = podpisy[Math.floor(Math.random() * podpisy.length)] + '\\nPhillip Mrozik\\nMrozikDigital | 787 957 534\\nwww.mrozikdigital.com';\nconst napraw = function (t) {\n  return String(t).replace(/\\b(daj[eąa]|dał[aoy]?|zapewnia|zapewniają|zyskuj[eą]|ma(?:ją)?|mieć|budują|buduje)(\\s+(?:im|to|też|także|również|im\\s+to|to\\s+im|firmie|firmom)){0,3}\\s+przewaga\\b/gi, function (m) { return m.replace(/przewaga$/i, 'przewagę'); });\n};\nconst tresc = napraw(m.tresc.trim()) + '\\n\\n' + podpis;\nconst priorytet = a.ocena_leada * 10 + (a.typ === 'konkretny' ? 20 : 0) + m.ocena;\nreturn [{ json: {\n  id: w.firma.id, status: 'gotowa', powod: '', email: d.email, email_zrodlo: d.email_zrodlo,\n  pomysl_glowny: a.glowny.tytul, pomysl_ekstra: a.ekstra.tytul, typ_propozycji: a.typ, priorytet: priorytet,\n  temat: 'Propozycja współpracy', tresc: tresc, ocena_kontrolera: m.ocena\n} }];"
+        }
+      },
+      "id": "35174911-d539-4c40-ad94-9986ade9e32e",
+      "name": "Gotowy mail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9856,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ Object.assign({}, $('Werdykt kontroli').first().json.zapytanie_poprawki, { service_tier: 'flex' }) }}",
+        "options": {
+          "timeout": 900000
+        }
+      },
+      "id": "aceb4357-1404-47d0-ac56-6d0f3eb31fc8",
+      "name": "AI: popraw maila",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        8736,
+        960
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const sprawdzMail = function (surowy, porownawcze) {\n  let tresc = String(surowy || '').replace(/\\r/g, '').replace(/[ \\t]+\\n/g, '\\n').replace(/\\n{3,}/g, '\\n\\n').trim();\n  tresc = tresc.replace(/\\n*(pozdrawiam|z pozdrowieniami|z wyrazami|łączę pozdrowienia)[\\s\\S]*$/i, '').trim();\n  tresc = tresc.replace(/\\n*(moje realizacje|www\\.mrozikdigital|https?:\\/\\/)[\\s\\S]*$/i, '').trim();\n  tresc = tresc.replace(/ [—–] /g, ', ').replace(/[—–]/g, '-');\n  tresc = tresc.split('\\n').map(function (l) { return l.replace(/^\\s*[•*·]\\s+/, '- ').replace(/^\\s*-\\s*/, function (m) { return m.trim() === '-' ? '- ' : m; }); }).join('\\n');\n  const problemy = [];\n  const slowa = tresc.split(/\\s+/).filter(Boolean).length;\n  if (slowa < 75 || slowa > 165) problemy.push('Długość ' + slowa + ' słów, ma być 90-140.');\n  const punkty = tresc.split('\\n').filter(function (l) { return /^- /.test(l); });\n  if (punkty.length !== 3) problemy.push('Mają być dokładnie 3 punkty zaczynające się od \"- \" (jest ' + punkty.length + ').');\n  if (punkty.some(function (p) { return p.split(/\\s+/).length > 16; })) problemy.push('Punkty mają być krótkie (do 12 słów).');\n  const auto = (tresc.match(/automatyzac[a-ząćęłńóśźż]*\\s+(z\\s+)?(wykorzystaniem\\s+)?AI/gi) || []).length;\n  if (auto !== 1) problemy.push('Wyrażenie automatyzacja AI musi wystąpić dokładnie raz (jest ' + auto + ').');\n  if (!/Phillip Mrozik/.test(tresc)) problemy.push('Brak przedstawienia się jako Phillip Mrozik.');\n  if (!/(konkurencj|przewag|wyróżni|na tle|niż inn|niż firmy)/i.test(tresc)) problemy.push('Brak wzmianki o przewadze nad konkurencją.');\n  if (!/(taniej|niższ|niżej)/i.test(tresc) || !/(portfoli|realizacj|przykład)/i.test(tresc)) problemy.push('Brak zdania o niższej cenie przez budowanie portfolio.');\n  if (!/\\?\\s*$/.test(tresc)) problemy.push('Mail ma się kończyć pytaniem.');\n  if (/(^|\\n)\\s*(przesłać|wysłać|rozpisać)\\?\\s*$/i.test(tresc) || /[.?]\\s+(Przesłać|Wysłać|Rozpisać)\\?\\s*$/.test(tresc)) problemy.push('Pytanie końcowe ma być pełnym zdaniem, nie jednym słowem.');\n  const maly = ' ' + tresc.toLowerCase().replace(/[^a-ząćęłńóśźż0-9 ]+/g, ' ').replace(/\\s+/g, ' ') + ' ';\n  const ZAKAZANE = ['pewnie', 'chyba', 'myślę', 'wydaje mi się', 'być może', 'zapewne', 'czy u państwa też', 'w praktyce', 'oznacza to', 'przy okazji', 'dzięki czemu', 'z tej strony', 'krótko się przedstawię', 'trafiłem', 'zwróciłem uwagę', 'zauważyłem', 'przeczytałem', 'na państwa stronie', 'w opiniach'];\n  const znalezione = ZAKAZANE.filter(function (z) { return maly.indexOf(' ' + z + ' ') !== -1; });\n  if (znalezione.length) problemy.push('Zakazane zwroty: ' + znalezione.join(', ') + '.');\n  if (/(stron[aęyi]\\s+(internetow|www)|now[aąej]+\\s+stron|witryn|\\bseo\\b|pozycjonow|social\\s*media|reklam[ay]\\s+w\\s+(google|facebook))/i.test(tresc)) problemy.push('Mail proponuje stronę internetową lub marketing.');\n  if (/(workflow|integracj|\\bAPI\\b|\\bn8n\\b|\\bCRM\\b|chatbot|\\bsystem|algorytm)/i.test(tresc)) problemy.push('Techniczne słowa w treści.');\n  if (/!/.test(tresc)) problemy.push('Wykrzyknik w treści.');\n  if (/szanowni/i.test(tresc)) problemy.push('Szanowni Państwo jest zakazane.');\n  if (/małym firmom|małe firmy/i.test(tresc)) problemy.push('Nie pisać o małych firmach.');\n  if (/\\d+\\s*%|\\bproc(ent|\\.)/i.test(tresc)) problemy.push('Bez liczb i procentów.');\n  if (/[\\[\\]{}]|XXX|\\(nazwa/i.test(tresc)) problemy.push('Pozostały znaczniki do uzupełnienia.');\n  if (/\\p{Extended_Pictographic}/u.test(tresc)) problemy.push('Emotikony w treści.');\n  const trigramy = function (t) { const s = String(t).toLowerCase().replace(/[^a-ząćęłńóśźż0-9 ]/g, ' ').split(/\\s+/).filter(Boolean); const o = {}; for (let i = 0; i + 2 < s.length; i++) o[s[i] + ' ' + s[i + 1] + ' ' + s[i + 2]] = true; return o; };\n  const moje = trigramy(tresc);\n  let maxPodob = 0;\n  (porownawcze || []).forEach(function (inny) {\n    const t2 = trigramy(String(inny).replace(/\\n*(pozdrawiam|z pozdrowieniami)[\\s\\S]*$/i, ''));\n    const a = Object.keys(moje); const b = Object.keys(t2);\n    if (!a.length || !b.length) return;\n    const podob = a.filter(function (x) { return t2[x]; }).length / Math.min(a.length, b.length);\n    if (podob > maxPodob) maxPodob = podob;\n  });\n  if (maxPodob > 0.75) problemy.push('Mail jest za bardzo podobny do wcześniejszego (' + Math.round(maxPodob * 100) + '% wspólnych fraz), ułóż zdania inaczej.');\n  return { tresc: tresc, problemy: problemy, slowa: slowa };\n};\n\nconst PORZADEK = $('Przygotuj pisanie maila').first().json;\nconst odczyt = function (odp) { let t = ''; (odp.output || []).forEach(function (o) { if (o.type === 'message') (o.content || []).forEach(function (c) { if (c.type === 'output_text') t = c.text; }); }); return t; };\nconst tekstAI = odczyt($input.first().json);\nif (!tekstAI) throw new Error('AI nie zwróciło poprawionej treści maila');\nconst wynik = sprawdzMail(JSON.parse(tekstAI).tresc, PORZADEK.teksty_porownawcze);\nconst pierwsza = $('Kontrola techniczna maila').first().json;\nconst zap = JSON.parse(JSON.stringify(pierwsza.zapytanie));\nconst dane = JSON.parse(zap.input[1].content);\ndane.mail = wynik.tresc;\nzap.input[1].content = JSON.stringify(dane);\nreturn [{ json: { tresc: wynik.tresc, problemy_techniczne: wynik.problemy, zapytanie: zap } }];",
+        "parameters": {
+          "jsCode": "const sprawdzMail = function (surowy, porownawcze) {\n  let tresc = String(surowy || '').replace(/\\r/g, '').replace(/[ \\t]+\\n/g, '\\n').replace(/\\n{3,}/g, '\\n\\n').trim();\n  tresc = tresc.replace(/\\n*(pozdrawiam|z pozdrowieniami|z wyrazami|łączę pozdrowienia)[\\s\\S]*$/i, '').trim();\n  tresc = tresc.replace(/\\n*(moje realizacje|www\\.mrozikdigital|https?:\\/\\/)[\\s\\S]*$/i, '').trim();\n  tresc = tresc.replace(/ [—–] /g, ', ').replace(/[—–]/g, '-');\n  tresc = tresc.split('\\n').map(function (l) { return l.replace(/^\\s*[•*·]\\s+/, '- ').replace(/^\\s*-\\s*/, function (m) { return m.trim() === '-' ? '- ' : m; }); }).join('\\n');\n  const problemy = [];\n  const slowa = tresc.split(/\\s+/).filter(Boolean).length;\n  if (slowa < 110 || slowa > 195) problemy.push('Długość ' + slowa + ' słów, ma być 130-170.');\n  const punkty = tresc.split('\\n').filter(function (l) { return /^- /.test(l); });\n  if (punkty.length !== 3) problemy.push('Mają być dokładnie 3 punkty zaczynające się od \"- \" (jest ' + punkty.length + ').');\n  if (punkty.some(function (p) { return p.split(/\\s+/).length > 16; })) problemy.push('Punkty mają być krótkie (do 12 słów).');\n  const auto = (tresc.match(/automatyzac[a-ząćęłńóśźż]*\\s+(z\\s+)?(wykorzystaniem\\s+)?AI/gi) || []).length;\n  if (auto !== 1) problemy.push('Wyrażenie automatyzacja AI musi wystąpić dokładnie raz (jest ' + auto + ').');\n  if (!/Phillip Mrozik/.test(tresc)) problemy.push('Brak przedstawienia się jako Phillip Mrozik.');\n  if (!/konkurencj/i.test(tresc)) problemy.push('Brak wzmianki o przewadze nad konkurencją.');\n  if (!/(więcej|nowych)[^.?]{0,30}klient|klient[^.?]{0,20}więcej/i.test(tresc)) problemy.push('Brak wprost: więcej klientów.');\n  if (!/(zysk|zarabia|zarobi|zarobk)/i.test(tresc)) problemy.push('Brak wprost: większe zyski.');\n  if (!/(taniej|niższ|niżej)/i.test(tresc) || !/(portfoli|realizacj|przykład)/i.test(tresc)) problemy.push('Brak zdania o niższej cenie przez budowanie portfolio.');\n  if (!/\\?\\s*$/.test(tresc)) problemy.push('Mail ma się kończyć pytaniem.');\n  if (/(^|\\n)\\s*(przesłać|wysłać|rozpisać)\\?\\s*$/i.test(tresc) || /[.?]\\s+(Przesłać|Wysłać|Rozpisać)\\?\\s*$/.test(tresc)) problemy.push('Pytanie końcowe ma być pełnym zdaniem, nie jednym słowem.');\n  const maly = ' ' + tresc.toLowerCase().replace(/[^a-ząćęłńóśźż0-9 ]+/g, ' ').replace(/\\s+/g, ' ') + ' ';\n  const ZAKAZANE = ['pewnie', 'chyba', 'myślę', 'wydaje mi się', 'być może', 'zapewne', 'czy u państwa też', 'w praktyce', 'oznacza to', 'przy okazji', 'dzięki czemu', 'z tej strony', 'krótko się przedstawię', 'trafiłem', 'zwróciłem uwagę', 'zauważyłem', 'przeczytałem', 'na państwa stronie', 'w opiniach'];\n  const znalezione = ZAKAZANE.filter(function (z) { return maly.indexOf(' ' + z + ' ') !== -1; });\n  if (znalezione.length) problemy.push('Zakazane zwroty: ' + znalezione.join(', ') + '.');\n  if (/(stron[aęyi]\\s+(internetow|www)|now[aąej]+\\s+stron|witryn|\\bseo\\b|pozycjonow|social\\s*media|reklam[ay]\\s+w\\s+(google|facebook))/i.test(tresc)) problemy.push('Mail proponuje stronę internetową lub marketing.');\n  if (/(workflow|integracj|\\bAPI\\b|\\bn8n\\b|\\bCRM\\b|chatbot|\\bsystem|algorytm)/i.test(tresc)) problemy.push('Techniczne słowa w treści.');\n  if (/!/.test(tresc)) problemy.push('Wykrzyknik w treści.');\n  if (/szanowni/i.test(tresc)) problemy.push('Szanowni Państwo jest zakazane.');\n  if (/małym firmom|małe firmy/i.test(tresc)) problemy.push('Nie pisać o małych firmach.');\n  if (/\\d+\\s*%|\\bproc(ent|\\.)/i.test(tresc)) problemy.push('Bez liczb i procentów.');\n  if (/[\\[\\]{}]|XXX|\\(nazwa/i.test(tresc)) problemy.push('Pozostały znaczniki do uzupełnienia.');\n  if (/\\p{Extended_Pictographic}/u.test(tresc)) problemy.push('Emotikony w treści.');\n  const trigramy = function (t) { const s = String(t).toLowerCase().replace(/[^a-ząćęłńóśźż0-9 ]/g, ' ').split(/\\s+/).filter(Boolean); const o = {}; for (let i = 0; i + 2 < s.length; i++) o[s[i] + ' ' + s[i + 1] + ' ' + s[i + 2]] = true; return o; };\n  const moje = trigramy(tresc);\n  let maxPodob = 0;\n  (porownawcze || []).forEach(function (inny) {\n    const t2 = trigramy(String(inny).replace(/\\n*(pozdrawiam|z pozdrowieniami)[\\s\\S]*$/i, ''));\n    const a = Object.keys(moje); const b = Object.keys(t2);\n    if (!a.length || !b.length) return;\n    const podob = a.filter(function (x) { return t2[x]; }).length / Math.min(a.length, b.length);\n    if (podob > maxPodob) maxPodob = podob;\n  });\n  if (maxPodob > 0.75) problemy.push('Mail jest za bardzo podobny do wcześniejszego (' + Math.round(maxPodob * 100) + '% wspólnych fraz), ułóż zdania inaczej.');\n  return { tresc: tresc, problemy: problemy, slowa: slowa };\n};\n\nconst PORZADEK = $('Przygotuj pisanie maila').first().json;\nconst odczyt = function (odp) { let t = ''; (odp.output || []).forEach(function (o) { if (o.type === 'message') (o.content || []).forEach(function (c) { if (c.type === 'output_text') t = c.text; }); }); return t; };\nconst tekstAI = odczyt($input.first().json);\nif (!tekstAI) throw new Error('AI nie zwróciło poprawionej treści maila');\nconst wynik = sprawdzMail(JSON.parse(tekstAI).tresc, PORZADEK.teksty_porownawcze);\nconst pierwsza = $('Kontrola techniczna maila').first().json;\nconst zap = JSON.parse(JSON.stringify(pierwsza.zapytanie));\nconst dane = JSON.parse(zap.input[1].content);\ndane.mail = wynik.tresc;\nzap.input[1].content = JSON.stringify(dane);\nreturn [{ json: { tresc: wynik.tresc, problemy_techniczne: wynik.problemy, zapytanie: zap } }];"
+        }
+      },
+      "id": "270b680a-dbd1-46ad-badc-d78252e53add",
+      "name": "Kontrola techniczna poprawki",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8960,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ Object.assign({}, $('Kontrola techniczna poprawki').first().json.zapytanie, { service_tier: 'flex' }) }}",
+        "options": {
+          "timeout": 900000
+        }
+      },
+      "id": "28578924-7157-4ac1-a046-6436923fb314",
+      "name": "AI: kontrola poprawki",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        9184,
+        960
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const POPRZEDNI = $('Kontrola techniczna poprawki').first().json;\nconst odczyt = function (odp) { let t = ''; (odp.output || []).forEach(function (o) { if (o.type === 'message') (o.content || []).forEach(function (c) { if (c.type === 'output_text') t = c.text; }); }); return t; };\nconst k = JSON.parse(odczyt($input.first().json) || '{}');\nconst ocena = Math.max(1, Math.min(10, parseInt(k.ocena, 10) || 1));\nconst wszystkie = (POPRZEDNI.problemy_techniczne || []).concat(k.problemy || []);\nconst ok = ocena >= 8 && !k.twierdzi_cos_nieznalezionego && !k.proponuje_strone && (POPRZEDNI.problemy_techniczne || []).length === 0;\nif (ok) return [{ json: { ok: true, tresc: POPRZEDNI.tresc, ocena: ocena, problemy: [] } }];\nreturn [{ json: { ok: false, status: 'odrzucona', powod: 'mail nie przeszedł kontroli jakości 2 razy: ' + wszystkie.slice(0, 3).join(' ') } }];"
+      },
+      "id": "52ae7207-b4d2-4dca-bb7e-18cf93ba7d6d",
+      "name": "Werdykt poprawki",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9408,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a3cb6c0d-e749-4b22-a1eb-71c83fda7ba7",
+      "name": "Poprawka zaakceptowana?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        9632,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const w = $('Wybrana firma').first().json;\nconst d = $input.first().json;\nconst status = d.status === 'sprawdz_pozniej' ? 'sprawdz_pozniej' : 'odrzucona';\nreturn [{ json: { id: w.firma.id, status: status, powod: String(d.powod || 'nie spełnia warunków').slice(0, 500), data_nastepnego: status === 'sprawdz_pozniej' ? $now.plus({ months: 1 }).startOf('month').toISO() : null } }];"
+      },
+      "id": "cd4756fb-fcd4-4304-81ea-a1d08458f169",
+      "name": "Odrzuć firmę",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9856,
+        1152
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{ $json.id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "={{ $json.status }}",
+            "powod": "",
+            "email": "={{ $json.email }}",
+            "email_zrodlo": "={{ $json.email_zrodlo }}",
+            "pomysl_glowny": "={{ $json.pomysl_glowny }}",
+            "pomysl_ekstra": "={{ $json.pomysl_ekstra }}",
+            "typ_propozycji": "={{ $json.typ_propozycji }}",
+            "priorytet": "={{ $json.priorytet }}",
+            "temat": "={{ $json.temat }}",
+            "tresc": "={{ $json.tresc }}",
+            "ocena_kontrolera": "={{ $json.ocena_kontrolera }}"
+          },
+          "schema": [
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "powod",
+              "displayName": "powod",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email_zrodlo",
+              "displayName": "email_zrodlo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "pomysl_glowny",
+              "displayName": "pomysl_glowny",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "pomysl_ekstra",
+              "displayName": "pomysl_ekstra",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "typ_propozycji",
+              "displayName": "typ_propozycji",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "priorytet",
+              "displayName": "priorytet",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "temat",
+              "displayName": "temat",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "tresc",
+              "displayName": "tresc",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ocena_kontrolera",
+              "displayName": "ocena_kontrolera",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5fea3ae4-8a58-4666-822a-07e5bc90ecae",
+      "name": "Zapisz gotowy mail",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        10080,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_research",
+          "cachedResultName": "cm_research"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "firma_id": "={{ $('Wybrana firma').first().json.firma.id }}",
+            "dane": "={{ JSON.stringify({ firma: $('Wybrana firma').first().json.firma, strona: { sposob: $('Treść strony i maile ze strony').first().json.sposob, ma_juz: $('Treść strony i maile ze strony').first().json.ma_juz, tekst: String($('Treść strony i maile ze strony').first().json.tekst_strony || '').slice(0, 6000) }, opinie_google: $('Przygotuj research w internecie').first().json.opinie_google, internet: $('Wybierz najlepszy email').first().json.web, email: $('Wybierz najlepszy email').first().json.wybrany, analiza: $('Sprawdź analizę').first().json }) }}"
+          },
+          "schema": [
+            {
+              "id": "firma_id",
+              "displayName": "firma_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "dane",
+              "displayName": "dane",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "73984c18-fe3a-4b24-b2ff-cd9ad87d9864",
+      "name": "Zapisz research firmy",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        10304,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{ $json.id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "={{ $json.status }}",
+            "powod": "={{ $json.powod }}",
+            "data_nastepnego": "={{ $json.data_nastepnego }}"
+          },
+          "schema": [
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "powod",
+              "displayName": "powod",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "data_nastepnego",
+              "displayName": "data_nastepnego",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6becb326-cfec-4e5a-be7f-226aea1103dd",
+      "name": "Zapisz odrzucenie",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        10080,
+        1152
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "83198c03-1b97-4675-8074-3e41578a04b9",
+      "name": "Gdy wystąpi błąd",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1376
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const esc = function (t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };\nconst ocen = function (opis, nazwaNode) {\n  const m = String(opis || '').toLowerCase();\n  const n = String(nazwaNode || '').toLowerCase();\n  let usluga = 'jedną z usług';\n  if (n.indexOf('gmail') !== -1) usluga = 'Gmailem';\n  else if (n.indexOf('ai:') !== -1 || m.indexOf('openai') !== -1) usluga = 'OpenAI';\n  else if (n.indexOf('google') !== -1) usluga = 'Google Maps';\n  else if (n.indexOf('firecrawl') !== -1) usluga = 'Firecrawlem';\n  else if (n.indexOf('telegram') !== -1) usluga = 'Telegramem';\n  else if (/pobierz|zapisz|oznacz|zaktualizuj|usu|firma z|ostatnie|dzisiejsze|gotowe|follow|powroty|raport|odpowiedzi|już obsłużone/.test(n)) usluga = 'bazą danych n8n';\n  if (/\\b(401|403)\\b|unauthori|forbidden|invalid_grant|invalid.{0,20}(credential|token|api.?key)|credentials? (are|is) (invalid|wrong)|permission|token has been expired|revoked/.test(m)) {\n    return { powazny: true, klucz: 'auth:' + usluga, co: 'Przestało działać połączenie z ' + usluga + ' (wygasło logowanie albo klucz).', rada: 'Wejdź w n8n → Credentials i połącz to konto ponownie. Dopóki tego nie zrobisz, ta część systemu stoi.' };\n  }\n  if (/insufficient_quota|billing|credit balance|exceeded your current quota|\\b402\\b|payment required|daily sending quota|daily user sending limit|user-rate limit exceeded/.test(m)) {\n    return { powazny: true, klucz: 'limit:' + usluga, co: usluga === 'Gmailem' ? 'Gmail zablokował wysyłkę na dziś (za dużo maili).' : 'Skończyły się środki albo limit na koncie (' + usluga + ').', rada: usluga === 'Gmailem' ? 'Wyłącz system przyciskiem poniżej i zmniejsz limity kampanii. Gmail odblokuje się zwykle po 24 godzinach.' : 'Doładuj konto albo zwiększ limit w tej usłudze. Do tego czasu ta część systemu stoi.' };\n  }\n  if (/timeout|timed out|etimedout|econnreset|econnrefused|enotfound|socket hang up|\\b50[0234]\\b|unavailable|bad gateway|overloaded|\\b429\\b|rate.?limit|too many requests/.test(m)) {\n    return { powazny: false, klucz: 'chwilowy:' + usluga, co: 'Połączenie z ' + usluga + ' ciągle nie działa (serwis nie odpowiada albo jest przeciążony).', rada: 'Zwykle przechodzi samo. Jeśli dostaniesz ten alert jeszcze raz, sprawdź stronę statusu tej usługi.' };\n  }\n  return { powazny: false, klucz: 'inny:' + n, co: 'Ten sam błąd powtarza się w kroku „' + nazwaNode + '”.', rada: 'Pojedyncze przypadki system pomija sam. Skoro się powtarza, warto rzucić okiem w n8n (lista wykonań tego workflowu).' };\n};\nconst s = $getWorkflowStaticData('global');\nconst teraz = Date.now();\ns.bledy = s.bledy || {};\ns.zgloszone = s.zgloszone || {};\nconst PROG_POWTORZEN = 4;\nconst ex = $input.first().json.execution || {};\nconst blad = ex.error || {};\nconst nazwa = (blad.node || {}).name || ex.lastNodeExecuted || '';\nconst opis = String(blad.message || '') + ' ' + String(blad.description || '') + ' ' + JSON.stringify(blad).slice(0, 2000);\nconst o = ocen(opis, nazwa);\nconst lista = (s.bledy[o.klucz] || []).filter(function (t) { return teraz - t < 3600000; });\nlista.push(teraz);\ns.bledy[o.klucz] = lista;\nObject.keys(s.bledy).forEach(function (k) { s.bledy[k] = s.bledy[k].filter(function (t) { return teraz - t < 3600000; }); if (!s.bledy[k].length) delete s.bledy[k]; });\nif (!o.powazny && lista.length < PROG_POWTORZEN) return [];\nif (s.zgloszone[o.klucz] && teraz - s.zgloszone[o.klucz] < 3 * 3600000) return [];\ns.zgloszone[o.klucz] = teraz;\nconst naglowek = o.powazny ? '🚨 <b>Silnik researchu: poważny problem</b>' : '⚠️ <b>Silnik researchu: problem się powtarza</b> (' + lista.length + 'x w ostatniej godzinie)';\nreturn [{ json: { tekst: naglowek + '\\n\\n<b>Co się stało:</b> ' + esc(o.co) + '\\n<b>Co zrobić:</b> ' + esc(o.rada) + '\\n\\n<i>Szczegóły: ' + esc(nazwa) + ' – ' + esc(String(blad.message || '').slice(0, 180)) + '</i>\\n\\nPrzycisk poniżej zatrzymuje cały system (szukanie, research i wysyłkę). Ten sam problem nie będzie zgłaszany częściej niż co 3 godziny.' } }];\n"
+      },
+      "id": "32a036e2-b1a3-4dcc-8818-05e6c78a42fd",
+      "name": "Nie spamuj błędami",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        1376
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "TWOJ_TELEGRAM_CHAT_ID",
+        "text": "={{ $json.tekst }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "⏸️ Wyłącz wszystko",
+                    "additionalFields": {
+                      "url": "https://TWOJA-INSTANCJA.app.n8n.cloud/webhook/cold-mail-sterowanie?akcja=stop&klucz=TWOJ_KLUCZ_STEROWANIA"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "00b82840-3349-4a65-a5cf-d0c6ac6d44c5",
+      "name": "Telegram: błąd researchu",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        448,
+        1376
+      ],
+      "webhookId": "862c9740-702e-4509-97e7-9125321a6bbb",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Pain Radar Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Przygotuj research w internecie').first().json.zapytanie }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "7feaeecc-d37b-4cf8-b59b-e88f32ef7518",
+      "name": "AI: research w internecie (zwykły tryb)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        4256,
+        1264
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Przygotuj analizę firmy').first().json.zapytanie }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "230eabdc-b4e2-42a0-b9ad-6ba34a159623",
+      "name": "AI: analiza firmy (zwykły tryb)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        6272,
+        1184
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Przygotuj pisanie maila').first().json.zapytanie }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "13e779a1-e6f4-4c0d-98d8-70e0ec2ee525",
+      "name": "AI: napisz maila (zwykły tryb)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        7616,
+        1120
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Kontrola techniczna maila').first().json.zapytanie }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "eb7e1375-fd34-403b-9a17-4a6181f29403",
+      "name": "AI: kontroler jakości (zwykły tryb)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        8064,
+        1120
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Werdykt kontroli').first().json.zapytanie_poprawki }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "dcc25f1d-696a-46ad-9374-7e4b26c0ef46",
+      "name": "AI: popraw maila (zwykły tryb)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        8736,
+        1184
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Kontrola techniczna poprawki').first().json.zapytanie }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "4cf059b4-4d34-49bd-a4d4-b8755f90e0d1",
+      "name": "AI: kontrola poprawki (zwykły tryb)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        9184,
+        1184
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ !(($('Treść strony i maile ze strony').first().json.maile_strony || []).some(function (m) { var e = String(m.email || '').toLowerCase(); var lok = e.split('@')[0].replace(/[0-9]+$/, ''); return /^[a-z0-9][a-z0-9._%+-]*@[a-z0-9.-]+\\.[a-z]{2,24}$/.test(e) && !/\\.(png|jpe?g|gif|webp|svg|css|js)$/.test(e) && !/^(rodo|iod|ido|abi|gdpr|dpo|ochronadanych|privacy|faktury|faktura|invoice|invoices|noreply|no-reply|donotreply|newsletter|rekrutacja|praca|kariera|hr|jobs|cv|reklamacje|reklamacja|webmaster|postmaster|abuse|hostmaster|marketing|press|prasa|media)$/.test(lok) && !/(sentry|wixpress|example|domena|yourdomain|godaddy|cloudflare|schema\\.org|w3\\.org)/.test(e); })) }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              }
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "038b2d90-8931-4447-8401-0dd84f83d34b",
+      "name": "Szukać maila w internecie?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4144,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mail firmy jest już na jej stronie, więc płatne wyszukiwanie w internecie nie jest potrzebne.\nreturn [{ json: { output: [], pominieto_wyszukiwanie: true } }];"
+      },
+      "id": "bd366061-9adb-46d7-9b44-e79b1071e814",
+      "name": "Mail jest na stronie: bez wyszukiwania",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4368,
+        848
+      ]
+    }
+  ],
+  "connections": {
+    "Pobierz ustawienia": {
+      "main": [
+        [
+          {
+            "node": "Pobierz kampanie",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Uruchom ręcznie": {
+      "main": [
+        [
+          {
+            "node": "Pobierz ustawienia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pobierz kampanie": {
+      "main": [
+        [
+          {
+            "node": "Pobierz firmy w kolejce",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pobierz firmy w kolejce": {
+      "main": [
+        [
+          {
+            "node": "Zaplanuj przebieg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zaplanuj przebieg": {
+      "main": [
+        [
+          {
+            "node": "Porządki: kampanie",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Porządki: firmy",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Co robimy teraz?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Porządki: kampanie": {
+      "main": [
+        [
+          {
+            "node": "Zmień status kampanii",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zmień status kampanii": {
+      "main": [
+        [
+          {
+            "node": "Telegram: zmiana kampanii",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Porządki: firmy": {
+      "main": [
+        [
+          {
+            "node": "Odblokuj lub odrzuć firmę",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Co robimy teraz?": {
+      "main": [
+        [
+          {
+            "node": "Przygotuj szukanie",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wybrana firma",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Przygotuj szukanie": {
+      "main": [
+        [
+          {
+            "node": "Zapisz postęp szukania",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Google czy OpenStreetMap?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wybrana firma": {
+      "main": [
+        [
+          {
+            "node": "Oznacz firmę jako sprawdzaną",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google czy OpenStreetMap?": {
+      "main": [
+        [
+          {
+            "node": "Google Maps: szukaj firm",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "OpenStreetMap: szukaj firm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Maps: szukaj firm": {
+      "main": [
+        [
+          {
+            "node": "Ujednolić wyniki Google",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ujednolić wyniki Google": {
+      "main": [
+        [
+          {
+            "node": "Odfiltruj i ujednolić firmy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenStreetMap: szukaj firm": {
+      "main": [
+        [
+          {
+            "node": "Ujednolić wyniki OpenStreetMap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ujednolić wyniki OpenStreetMap": {
+      "main": [
+        [
+          {
+            "node": "Odfiltruj i ujednolić firmy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Odfiltruj i ujednolić firmy": {
+      "main": [
+        [
+          {
+            "node": "Pomiń firmy już znane",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pomiń firmy już znane": {
+      "main": [
+        [
+          {
+            "node": "Zapisz nowe firmy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Oznacz firmę jako sprawdzaną": {
+      "main": [
+        [
+          {
+            "node": "Czy firma ma stronę?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Czy firma ma stronę?": {
+      "main": [
+        [
+          {
+            "node": "Pobierz stronę główną",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Firma bez strony",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pobierz stronę główną": {
+      "main": [
+        [
+          {
+            "node": "Analizuj stronę główną",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analizuj stronę główną": {
+      "main": [
+        [
+          {
+            "node": "Czy strona da się przeczytać?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Czy strona da się przeczytać?": {
+      "main": [
+        [
+          {
+            "node": "Lista podstron",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Firecrawl: strona główna",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lista podstron": {
+      "main": [
+        [
+          {
+            "node": "Pobierz podstrony",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pobierz podstrony": {
+      "main": [
+        [
+          {
+            "node": "Złóż treść strony (pobieranie)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Złóż treść strony (pobieranie)": {
+      "main": [
+        [
+          {
+            "node": "Treść strony i maile ze strony",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Firecrawl: strona główna": {
+      "main": [
+        [
+          {
+            "node": "Firecrawl: wybierz podstrony",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Firecrawl: wybierz podstrony": {
+      "main": [
+        [
+          {
+            "node": "Firecrawl: podstrony",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Firecrawl: podstrony": {
+      "main": [
+        [
+          {
+            "node": "Złóż treść strony (Firecrawl)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Złóż treść strony (Firecrawl)": {
+      "main": [
+        [
+          {
+            "node": "Treść strony i maile ze strony",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Firma bez strony": {
+      "main": [
+        [
+          {
+            "node": "Treść strony i maile ze strony",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Treść strony i maile ze strony": {
+      "main": [
+        [
+          {
+            "node": "Czy ostrzec o Firecrawlu?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Google: opinie o firmie",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Czy ostrzec o Firecrawlu?": {
+      "main": [
+        [
+          {
+            "node": "Telegram: ostrzeżenie Firecrawl",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram: ostrzeżenie Firecrawl": {
+      "main": [
+        [
+          {
+            "node": "Zapamiętaj ostrzeżenie",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google: opinie o firmie": {
+      "main": [
+        [
+          {
+            "node": "Przygotuj research w internecie",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: research w internecie": {
+      "main": [
+        [
+          {
+            "node": "Wybierz najlepszy email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI: research w internecie (zwykły tryb)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wybierz najlepszy email": {
+      "main": [
+        [
+          {
+            "node": "Sprawdź źródło maila",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sprawdź źródło maila": {
+      "main": [
+        [
+          {
+            "node": "Sprawdź skrzynkę domeny (MX)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sprawdź skrzynkę domeny (MX)": {
+      "main": [
+        [
+          {
+            "node": "Sprawdź czarną listę",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sprawdź czarną listę": {
+      "main": [
+        [
+          {
+            "node": "Czy ten email już był?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Czy ten email już był?": {
+      "main": [
+        [
+          {
+            "node": "Decyzja o mailu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decyzja o mailu": {
+      "main": [
+        [
+          {
+            "node": "Mamy prawdziwy email?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mamy prawdziwy email?": {
+      "main": [
+        [
+          {
+            "node": "Przygotuj analizę firmy",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Odrzuć firmę",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Przygotuj analizę firmy": {
+      "main": [
+        [
+          {
+            "node": "AI: analiza firmy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: analiza firmy": {
+      "main": [
+        [
+          {
+            "node": "Sprawdź analizę",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI: analiza firmy (zwykły tryb)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sprawdź analizę": {
+      "main": [
+        [
+          {
+            "node": "Firma pasuje?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Firma pasuje?": {
+      "main": [
+        [
+          {
+            "node": "Pobierz ostatnie maile",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Odrzuć firmę",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pobierz ostatnie maile": {
+      "main": [
+        [
+          {
+            "node": "Pobierz maile w kolejce",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pobierz maile w kolejce": {
+      "main": [
+        [
+          {
+            "node": "Przygotuj pisanie maila",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Przygotuj pisanie maila": {
+      "main": [
+        [
+          {
+            "node": "AI: napisz maila",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: napisz maila": {
+      "main": [
+        [
+          {
+            "node": "Kontrola techniczna maila",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI: napisz maila (zwykły tryb)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kontrola techniczna maila": {
+      "main": [
+        [
+          {
+            "node": "AI: kontroler jakości",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: kontroler jakości": {
+      "main": [
+        [
+          {
+            "node": "Werdykt kontroli",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI: kontroler jakości (zwykły tryb)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Werdykt kontroli": {
+      "main": [
+        [
+          {
+            "node": "Mail zaakceptowany?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail zaakceptowany?": {
+      "main": [
+        [
+          {
+            "node": "Gotowy mail",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI: popraw maila",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gotowy mail": {
+      "main": [
+        [
+          {
+            "node": "Zapisz gotowy mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: popraw maila": {
+      "main": [
+        [
+          {
+            "node": "Kontrola techniczna poprawki",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI: popraw maila (zwykły tryb)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kontrola techniczna poprawki": {
+      "main": [
+        [
+          {
+            "node": "AI: kontrola poprawki",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: kontrola poprawki": {
+      "main": [
+        [
+          {
+            "node": "Werdykt poprawki",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI: kontrola poprawki (zwykły tryb)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Werdykt poprawki": {
+      "main": [
+        [
+          {
+            "node": "Poprawka zaakceptowana?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poprawka zaakceptowana?": {
+      "main": [
+        [
+          {
+            "node": "Gotowy mail",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Odrzuć firmę",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Odrzuć firmę": {
+      "main": [
+        [
+          {
+            "node": "Zapisz odrzucenie",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zapisz gotowy mail": {
+      "main": [
+        [
+          {
+            "node": "Zapisz research firmy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gdy wystąpi błąd": {
+      "main": [
+        [
+          {
+            "node": "Nie spamuj błędami",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nie spamuj błędami": {
+      "main": [
+        [
+          {
+            "node": "Telegram: błąd researchu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: research w internecie (zwykły tryb)": {
+      "main": [
+        [
+          {
+            "node": "Wybierz najlepszy email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: analiza firmy (zwykły tryb)": {
+      "main": [
+        [
+          {
+            "node": "Sprawdź analizę",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: napisz maila (zwykły tryb)": {
+      "main": [
+        [
+          {
+            "node": "Kontrola techniczna maila",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: kontroler jakości (zwykły tryb)": {
+      "main": [
+        [
+          {
+            "node": "Werdykt kontroli",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: popraw maila (zwykły tryb)": {
+      "main": [
+        [
+          {
+            "node": "Kontrola techniczna poprawki",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: kontrola poprawki (zwykły tryb)": {
+      "main": [
+        [
+          {
+            "node": "Werdykt poprawki",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Przygotuj research w internecie": {
+      "main": [
+        [
+          {
+            "node": "Szukać maila w internecie?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Szukać maila w internecie?": {
+      "main": [
+        [
+          {
+            "node": "AI: research w internecie",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mail jest na stronie: bez wyszukiwania",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail jest na stronie: bez wyszukiwania": {
+      "main": [
+        [
+          {
+            "node": "Wybierz najlepszy email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Research: pn–pt co 10 min (15–24), noce i weekendy co godz.": {
+      "main": [
+        [
+          {
+            "node": "Pobierz ustawienia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Warsaw",
+    "executionTimeout": 2400
+  },
+  "pinData": {}
+}

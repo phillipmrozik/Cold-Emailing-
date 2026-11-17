@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Cold Mail AI · Panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#07080d;--bg2:#0d0f17;--card:rgba(255,255,255,.035);--card2:rgba(255,255,255,.06);
+  --line:rgba(255,255,255,.08);--line2:rgba(255,255,255,.14);
+  --tx:#eef0f6;--tx2:#a3a8b8;--tx3:#6b7084;
+  --a1:#7c5cff;--a2:#22d3ee;--ok:#34d399;--warn:#fbbf24;--bad:#f87171;
+  --r:18px;--sh:0 20px 60px -20px rgba(0,0,0,.6);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--tx);min-height:100vh;line-height:1.5;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+h1,h2,h3,.num{font-family:"Space Grotesk",Inter,sans-serif;letter-spacing:-.02em}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none}
+.bg{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none}
+.bg i{position:absolute;border-radius:50%;filter:blur(90px);opacity:.35;animation:float 22s ease-in-out infinite}
+.bg i:nth-child(1){width:520px;height:520px;background:var(--a1);top:-160px;left:-120px}
+.bg i:nth-child(2){width:460px;height:460px;background:var(--a2);top:30%;right:-180px;animation-delay:-7s;opacity:.22}
+.bg i:nth-child(3){width:380px;height:380px;background:#ec4899;bottom:-160px;left:30%;animation-delay:-14s;opacity:.16}
+.bg:after{content:"";position:absolute;inset:0;background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);background-size:56px 56px;mask-image:radial-gradient(ellipse at top,#000 20%,transparent 70%);opacity:.35}
+@keyframes float{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(60px,40px) scale(1.08)}66%{transform:translate(-40px,30px) scale(.95)}}
+
+.wrap{max-width:1180px;margin:0 auto;padding:0 22px}
+header.top{position:sticky;top:0;z-index:20;backdrop-filter:blur(16px);background:rgba(7,8,13,.7);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;align-items:center;gap:18px;height:66px}
+.logo{white-space:nowrap;display:flex;align-items:center;gap:10px;font-weight:700;font-family:"Space Grotesk",Inter,system-ui,sans-serif;font-size:18px}
+.logo b{width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,var(--a1),var(--a2));display:grid;place-items:center;font-size:16px;box-shadow:0 6px 20px -6px var(--a1)}
+.logo span{color:var(--tx3);font-weight:500}
+nav.tabs{display:flex;gap:4px;margin-left:16px;background:var(--card);border:1px solid var(--line);padding:4px;border-radius:12px}
+nav.tabs button{padding:7px 14px;border-radius:9px;font-size:14px;font-weight:500;color:var(--tx2);transition:.2s}
+nav.tabs button.on{background:var(--card2);color:var(--tx);box-shadow:inset 0 0 0 1px var(--line2)}
+.top .right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:999px;font-size:12.5px;font-weight:600;border:1px solid var(--line);background:var(--card)}
+.dot{width:8px;height:8px;border-radius:50%;background:currentColor;box-shadow:0 0 0 0 currentColor;animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,currentColor 60%,transparent)}70%{box-shadow:0 0 0 8px transparent}100%{box-shadow:0 0 0 0 transparent}}
+.c-ok{color:var(--ok)}.c-warn{color:var(--warn)}.c-bad{color:var(--bad)}.c-mut{color:var(--tx3)}
+.icon-btn{width:36px;height:36px;border-radius:10px;border:1px solid var(--line);background:var(--card);display:grid;place-items:center;transition:.2s;color:var(--tx2)}
+.icon-btn:hover{background:var(--card2);color:var(--tx)}
+.icon-btn.spin svg{animation:rot 1s linear infinite}
+@keyframes rot{to{transform:rotate(360deg)}}
+
+main{padding:30px 0 80px}
+.view{display:none}
+.view.on{display:block;animation:in .5s cubic-bezier(.2,.8,.2,1)}
+@keyframes in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.hello{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:22px;flex-wrap:wrap}
+.hello h1{font-size:34px;line-height:1.1}
+.hello p{color:var(--tx2);margin-top:6px}
+.grad{background:linear-gradient(90deg,var(--a1),var(--a2));-webkit-background-clip:text;background-clip:text;color:transparent}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:22px;position:relative;overflow:hidden}
+.card h2{font-size:18px;display:flex;align-items:center;gap:10px}
+.card h2 small{font-family:Inter,system-ui,sans-serif;font-weight:500;font-size:13px;color:var(--tx3)}
+.sec{margin-top:22px}
+.reveal{opacity:0;transform:translateY(16px);transition:opacity .6s ease,transform .6s cubic-bezier(.2,.8,.2,1)}
+.reveal.vis{opacity:1;transform:none}
+
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:14px}
+.kpi{padding:18px 18px 16px}
+.kpi .lbl{font-size:12.5px;color:var(--tx3);font-weight:500;display:flex;align-items:center;gap:7px}
+.kpi .num{font-size:34px;font-weight:700;margin-top:6px;line-height:1}
+.kpi .num small{font-size:16px;color:var(--tx3);font-weight:500}
+.kpi .sub{font-size:12.5px;color:var(--tx2);margin-top:8px}
+.kpi .bar{height:4px;border-radius:4px;background:var(--line);margin-top:12px;overflow:hidden}
+.kpi .bar i{display:block;height:100%;width:0;border-radius:4px;background:linear-gradient(90deg,var(--a1),var(--a2));transition:width 1.4s cubic-bezier(.2,.8,.2,1)}
+.kpi:before{content:"";position:absolute;inset:0;background:radial-gradient(400px circle at var(--mx,50%) var(--my,0%),rgba(124,92,255,.12),transparent 40%);opacity:0;transition:.3s}
+.kpi:hover:before{opacity:1}
+
+.alerts{display:grid;gap:10px}
+.alert{display:flex;gap:12px;align-items:flex-start;padding:13px 16px;border-radius:14px;border:1px solid;font-size:14px}
+.alert.warn{background:rgba(251,191,36,.07);border-color:rgba(251,191,36,.25);color:#fde68a}
+.alert.bad{background:rgba(248,113,113,.08);border-color:rgba(248,113,113,.3);color:#fecaca}
+.alert.info{background:rgba(34,211,238,.06);border-color:rgba(34,211,238,.22);color:#a5f3fc}
+
+.grid2{display:grid;grid-template-columns:1.35fr 1fr;gap:18px}
+.camp{border:1px solid var(--line);border-radius:16px;padding:18px;background:rgba(255,255,255,.02);transition:.25s}
+.camp+.camp{margin-top:12px}
+.camp:hover{border-color:var(--line2);background:rgba(255,255,255,.035)}
+.camp .hd{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.camp .ttl{font-weight:600;font-size:16px}
+.camp .ttl span{color:var(--tx3);font-weight:500}
+.camp .meta{color:var(--tx3);font-size:13px;margin-top:2px}
+.st{font-size:11.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:3px 9px;border-radius:999px}
+.st.aktywna{background:rgba(52,211,153,.12);color:var(--ok)}
+.st.wstrzymana{background:rgba(251,191,36,.12);color:var(--warn)}
+.st.zakonczona{background:rgba(255,255,255,.07);color:var(--tx3)}
+.st.wyczerpana{background:rgba(248,113,113,.12);color:var(--bad)}
+.score{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx2)}
+.score b{font-family:"Space Grotesk",Inter,system-ui,sans-serif;font-size:20px;color:var(--tx)}
+.prog{margin-top:14px}
+.prog .row{display:flex;justify-content:space-between;font-size:12.5px;color:var(--tx3);margin-bottom:6px}
+.track{height:8px;border-radius:8px;background:var(--line);overflow:hidden;display:flex}
+.track i{display:block;height:100%;width:0;transition:width 1.4s cubic-bezier(.2,.8,.2,1)}
+.track .s1{background:linear-gradient(90deg,var(--a1),#9b7dff)}
+.track .s2{background:var(--a2)}
+.track .s3{background:rgba(255,255,255,.18)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--tx3);margin-top:8px}
+.legend span:before{content:"";display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:0;background:var(--c)}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px}
+.stats div{background:rgba(255,255,255,.025);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.stats b{display:block;font-family:"Space Grotesk",Inter,system-ui,sans-serif;font-size:20px}
+.stats span{font-size:12px;color:var(--tx3)}
+.acts{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:9px 15px;border-radius:11px;font-size:13.5px;font-weight:600;border:1px solid var(--line2);background:var(--card2);transition:.2s}
+.btn:hover{background:rgba(255,255,255,.1);transform:translateY(-1px)}
+.btn:active{transform:none}
+.btn.pri{background:linear-gradient(135deg,var(--a1),#5b8cff);border-color:transparent;box-shadow:0 10px 30px -10px var(--a1)}
+.btn.pri:hover{filter:brightness(1.1)}
+.btn.good{background:rgba(52,211,153,.14);border-color:rgba(52,211,153,.35);color:#a7f3d0}
+.btn.danger{background:rgba(248,113,113,.1);border-color:rgba(248,113,113,.35);color:#fecaca}
+.btn.ghost{background:transparent}
+.btn[disabled]{opacity:.5;pointer-events:none}
+a.btn{color:inherit;text-decoration:none}
+details.more{margin-top:12px;border-top:1px dashed var(--line);padding-top:10px}
+details.more summary{cursor:pointer;font-size:13px;color:var(--tx2);list-style:none;display:flex;align-items:center;gap:6px}
+details.more summary::-webkit-details-marker{display:none}
+details.more summary:before{content:"›";display:inline-block;transition:.2s;font-size:16px}
+details.more[open] summary:before{transform:rotate(90deg)}
+.pc{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}
+.pc ul{list-style:none;display:grid;gap:7px;font-size:13.5px;color:var(--tx2)}
+.pc li{display:flex;gap:8px}
+.pc h4{font-size:12px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+.why{font-size:13.5px;color:var(--tx2);margin-top:10px}
+
+.chart{display:flex;align-items:flex-end;gap:10px;height:230px;margin-top:18px;padding-top:10px}
+.col{flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;height:100%;position:relative}
+.col .stack{flex:1;width:100%;display:flex;flex-direction:column-reverse;justify-content:flex-start;border-radius:9px;overflow:hidden;background:rgba(255,255,255,.025)}
+.col .stack i{display:block;width:100%;height:0;transition:height 1.2s cubic-bezier(.2,.8,.2,1)}
+.col .stack .n{background:linear-gradient(180deg,#9b7dff,var(--a1))}
+.col .stack .f{background:linear-gradient(180deg,#67e8f9,var(--a2))}
+.col .d{font-size:11.5px;color:var(--tx3);white-space:nowrap}
+.col .t{font-size:12px;font-weight:700;font-family:"Space Grotesk",Inter,system-ui,sans-serif}
+.col .flag{position:absolute;top:-4px;right:2px;width:8px;height:8px;border-radius:50%;background:var(--warn)}
+.col:hover .tip{opacity:1;transform:translate(-50%,-6px)}
+.tip{position:absolute;bottom:100%;left:50%;transform:translate(-50%,0);background:#151826;border:1px solid var(--line2);border-radius:10px;padding:8px 10px;font-size:12px;white-space:nowrap;opacity:0;pointer-events:none;transition:.2s;z-index:5;box-shadow:var(--sh)}
+.notes{margin-top:16px;display:grid;gap:6px;font-size:13px;color:var(--tx2)}
+
+.sys{display:grid;gap:12px}
+.sw{display:flex;align-items:center;gap:14px;padding:14px;border-radius:14px;border:1px solid var(--line);background:rgba(255,255,255,.02)}
+.sw .tx{flex:1}
+.sw .tx b{display:block;font-size:14.5px}
+.sw .tx span{font-size:12.5px;color:var(--tx3)}
+.toggle{width:50px;height:28px;border-radius:999px;background:rgba(255,255,255,.1);position:relative;transition:.3s;flex:none}
+.toggle:after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:.3s cubic-bezier(.3,1.4,.5,1);box-shadow:0 2px 8px rgba(0,0,0,.4)}
+.toggle.on{background:var(--ok)}
+.toggle.on:after{left:25px}
+.toggle.red.on{background:var(--bad)}
+.toggle.amber.on{background:var(--warn)}
+
+/* ===== szukajka ===== */
+.hero{text-align:center;padding:30px 0 10px}
+.hero h1{font-size:46px;line-height:1.05}
+.hero p{color:var(--tx2);max-width:560px;margin:14px auto 0;font-size:16px}
+.search{max-width:860px;margin:34px auto 0;position:relative}
+.search .box{display:flex;align-items:stretch;gap:0;background:rgba(18,20,30,.85);border:1px solid var(--line2);border-radius:20px;padding:8px;box-shadow:0 30px 80px -30px rgba(124,92,255,.45);transition:.3s}
+.search .box:focus-within{border-color:rgba(124,92,255,.6);box-shadow:0 30px 90px -25px rgba(124,92,255,.65),0 0 0 4px rgba(124,92,255,.12)}
+.search .fld{flex:1;display:flex;flex-direction:column;justify-content:center;padding:8px 16px;text-align:left;min-width:0}
+.search .fld+.fld{border-left:1px solid var(--line)}
+.search label{font-size:11.5px;font-weight:600;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em}
+.search input[type=text]{background:none;border:0;outline:0;font-size:17px;padding:3px 0;width:100%}
+.search input::placeholder{color:#4d5266}
+.search .go{padding:0 26px;border-radius:14px;font-size:15px}
+.opts{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:860px;margin:16px auto 0}
+.rng{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 18px;text-align:left}
+.rng .top{display:flex;justify-content:space-between;align-items:baseline}
+.rng label{font-size:13px;color:var(--tx2)}
+.rng output{font-family:"Space Grotesk",Inter,system-ui,sans-serif;font-size:22px;font-weight:700}
+.rng output small{font-size:13px;color:var(--tx3);font-weight:500;font-family:Inter,system-ui,sans-serif}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:6px;border-radius:6px;background:linear-gradient(90deg,var(--a1) var(--p,50%),rgba(255,255,255,.1) var(--p,50%));outline:0;margin-top:12px}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 0 0 5px rgba(124,92,255,.3);cursor:pointer;transition:.2s}
+input[type=range]::-webkit-slider-thumb:hover{box-shadow:0 0 0 8px rgba(124,92,255,.3)}
+input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:#fff;border:0;box-shadow:0 0 0 5px rgba(124,92,255,.3)}
+.rng .hint{font-size:12px;color:var(--tx3);margin-top:8px}
+.chips{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:18px}
+.chip{padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:var(--card);font-size:13px;color:var(--tx2);transition:.2s}
+.chip:hover{border-color:var(--line2);color:var(--tx);transform:translateY(-2px)}
+
+.loading{max-width:640px;margin:40px auto 0;text-align:center}
+.orb{width:120px;height:120px;margin:0 auto;position:relative}
+.orb:before,.orb:after{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid transparent;border-top-color:var(--a1);border-right-color:var(--a2);animation:rot 1.4s linear infinite}
+.orb:after{inset:16px;border-top-color:var(--a2);border-right-color:transparent;border-left-color:#ec4899;animation-duration:2.1s;animation-direction:reverse}
+.orb i{position:absolute;inset:38px;border-radius:50%;background:radial-gradient(circle,var(--a1),transparent 70%);animation:breath 2s ease-in-out infinite}
+@keyframes breath{50%{transform:scale(1.3);opacity:.6}}
+.loading h3{margin-top:24px;font-size:22px}
+.loading .q{color:var(--tx2);margin-top:4px}
+.steps{margin:26px auto 0;display:grid;gap:10px;text-align:left;max-width:440px}
+.step{display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--tx3);transition:.4s}
+.step .ic{width:22px;height:22px;border-radius:50%;border:2px solid var(--line2);display:grid;place-items:center;flex:none;font-size:12px;transition:.3s}
+.step.now{color:var(--tx);border-color:rgba(124,92,255,.4)}
+.step.now .ic{border-color:var(--a1);border-top-color:transparent;animation:rot .8s linear infinite}
+.step.done{color:var(--tx2)}
+.step.done .ic{background:var(--ok);border-color:var(--ok);color:#07080d}
+.timer{margin-top:16px;font-size:13px;color:var(--tx3)}
+
+.result{max-width:980px;margin:34px auto 0}
+.verdict{display:grid;grid-template-columns:240px 1fr;gap:26px;align-items:center}
+.gauge{position:relative;width:220px;height:220px;margin:auto}
+.gauge svg{transform:rotate(-90deg)}
+.gauge circle{fill:none;stroke-width:14}
+.gauge .bgc{stroke:rgba(255,255,255,.07)}
+.gauge .fg{stroke:url(#gg);stroke-linecap:round;transition:stroke-dashoffset 1.6s cubic-bezier(.2,.8,.2,1)}
+.gauge .c{position:absolute;inset:0;display:grid;place-items:center;text-align:center}
+.gauge .c b{font-family:"Space Grotesk",Inter,system-ui,sans-serif;font-size:58px;line-height:1}
+.gauge .c span{display:block;color:var(--tx3);font-size:13px}
+.vtag{display:inline-block;font-family:"Space Grotesk",Inter,system-ui,sans-serif;font-weight:700;font-size:15px;padding:6px 14px;border-radius:999px;letter-spacing:.04em}
+.vtag.g{background:rgba(52,211,153,.14);color:var(--ok)}
+.vtag.y{background:rgba(251,191,36,.14);color:var(--warn)}
+.vtag.r{background:rgba(248,113,113,.14);color:var(--bad)}
+.verdict h2{font-size:30px;margin-top:12px;line-height:1.15}
+.verdict p{color:var(--tx2);margin-top:10px}
+.market{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:18px}
+.market div{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px}
+.market b{display:block;font-family:"Space Grotesk",Inter,system-ui,sans-serif;font-size:24px}
+.market span{font-size:12px;color:var(--tx3)}
+.cols3{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}
+.list{list-style:none;display:grid;gap:10px;margin-top:14px}
+.list li{display:flex;gap:10px;font-size:14px;color:var(--tx2);opacity:0;transform:translateX(-8px);animation:li .5s forwards}
+@keyframes li{to{opacity:1;transform:none}}
+.list li i{flex:none;width:22px;height:22px;border-radius:7px;display:grid;place-items:center;font-style:normal;font-size:12px;font-weight:700}
+.plus i{background:rgba(52,211,153,.14);color:var(--ok)}
+.minus i{background:rgba(248,113,113,.14);color:var(--bad)}
+.pains{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}
+.pain{border:1px solid var(--line);border-radius:14px;padding:14px;background:rgba(255,255,255,.02)}
+.pain b{font-size:14px}
+.pain p{font-size:13px;color:var(--tx2);margin-top:6px}
+.pain em{display:block;font-style:normal;font-size:12.5px;color:var(--ok);margin-top:8px}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.tag{font-size:12.5px;padding:5px 10px;border-radius:8px;background:rgba(255,255,255,.05);border:1px solid var(--line);color:var(--tx2)}
+.decide{position:sticky;bottom:18px;margin-top:22px;display:flex;align-items:center;gap:14px;padding:16px 18px;border-radius:18px;background:rgba(18,20,30,.92);backdrop-filter:blur(14px);border:1px solid var(--line2);box-shadow:var(--sh);flex-wrap:wrap}
+.decide .tx{flex:1;min-width:220px}
+.decide .tx b{display:block}
+.decide .tx span{font-size:13px;color:var(--tx3)}
+
+.login{min-height:100vh;display:grid;place-items:center;padding:20px}
+.login .card{width:100%;max-width:420px;padding:34px;text-align:center;box-shadow:var(--sh)}
+.login h1{font-size:28px;margin-top:18px}
+.login p{color:var(--tx2);margin-top:8px;font-size:14px}
+.login input{width:100%;margin-top:22px;padding:14px 16px;border-radius:12px;border:1px solid var(--line2);background:rgba(0,0,0,.3);outline:0;font-size:15px;text-align:center;letter-spacing:.05em;transition:.2s}
+.login input:focus{border-color:var(--a1);box-shadow:0 0 0 4px rgba(124,92,255,.15)}
+.login .btn{width:100%;margin-top:12px;padding:13px}
+.err{color:var(--bad);font-size:13px;margin-top:10px;min-height:18px}
+.shake{animation:shake .4s}
+@keyframes shake{25%{transform:translateX(-8px)}50%{transform:translateX(8px)}75%{transform:translateX(-4px)}}
+
+.modal{position:fixed;inset:0;z-index:50;display:none;place-items:center;background:rgba(0,0,0,.6);backdrop-filter:blur(6px);padding:20px}
+.modal.on{display:grid;animation:fade .2s}
+@keyframes fade{from{opacity:0}}
+.modal .card{max-width:420px;width:100%;background:#11131d;box-shadow:var(--sh);animation:pop .3s cubic-bezier(.3,1.4,.5,1)}
+@keyframes pop{from{transform:scale(.9);opacity:0}}
+.modal h3{font-size:20px}
+.modal p{color:var(--tx2);margin-top:8px;font-size:14px}
+.modal .acts{justify-content:flex-end;margin-top:22px}
+.toasts{position:fixed;right:20px;bottom:20px;z-index:60;display:grid;gap:10px}
+.toast{padding:12px 16px;border-radius:12px;background:#151826;border:1px solid var(--line2);box-shadow:var(--sh);font-size:14px;display:flex;gap:10px;align-items:center;animation:tin .35s cubic-bezier(.2,.8,.2,1);max-width:340px}
+.toast.out{animation:tout .3s forwards}
+@keyframes tin{from{opacity:0;transform:translateY(12px)}}
+@keyframes tout{to{opacity:0;transform:translateX(20px)}}
+.skel{background:linear-gradient(90deg,rgba(255,255,255,.04),rgba(255,255,255,.09),rgba(255,255,255,.04));background-size:200% 100%;animation:sk 1.4s infinite;border-radius:10px}
+@keyframes sk{to{background-position:-200% 0}}
+.empty{text-align:center;padding:30px;color:var(--tx3)}
+.foot{color:var(--tx3);font-size:12.5px;text-align:center;margin-top:40px}
+.foot a{color:var(--tx2)}
+.hide{display:none!important}
+
+@media (max-width:980px){.kpis{grid-template-columns:repeat(2,1fr)}.grid2,.verdict,.cols3{grid-template-columns:1fr}.market{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:680px){
+  nav.tabs{display:none}.hello h1{font-size:26px}.hero h1{font-size:32px}
+  .search .box{flex-direction:column}.search .fld+.fld{border-left:0;border-top:1px solid var(--line)}.search .go{padding:14px}
+  .opts,.pains,.pc{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}
+  .mobnav{display:flex!important}main{padding-bottom:110px}.decide{bottom:86px}.toasts{bottom:90px;left:14px;right:14px}
+  .chart{gap:5px}.col .d{font-size:10px}
+  .logo span,.top .right .pill span:last-child{display:none}.top .right .pill{padding:8px}.kpis .kpi:last-child{grid-column:span 2}.top .wrap{gap:10px}
+}
+.qhead{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.qhead .big{font-family:"Space Grotesk",Inter,system-ui,sans-serif;font-size:40px;font-weight:700;line-height:1}
+.qhead .big small{font-size:16px;color:var(--tx3);font-weight:500}
+.qcamp{margin-top:18px}
+.qcamp .hd{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.qcamp .hd b{font-size:16px}
+.qcamp .hd span{color:var(--tx3);font-size:13px}
+.mail{border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.02);transition:border-color .25s,background .25s,opacity .35s,transform .35s,max-height .45s;overflow:hidden;max-height:2000px}
+.mail+.mail{margin-top:8px}
+.mail:hover{border-color:var(--line2)}
+.mail.open{background:rgba(255,255,255,.035);border-color:rgba(124,92,255,.35)}
+.mail.gone{opacity:0;transform:translateX(40px);max-height:0;margin-top:0;border-width:0}
+.mail.fresh{animation:fresh 1.8s ease}
+@keyframes fresh{0%{box-shadow:0 0 0 0 rgba(52,211,153,.6);border-color:var(--ok)}100%{box-shadow:0 0 0 14px transparent}}
+.mrow{display:flex;align-items:center;gap:12px;padding:12px 14px;cursor:pointer;user-select:none}
+.mrow .nr{width:26px;height:26px;border-radius:8px;background:var(--card2);display:grid;place-items:center;font-size:12px;font-weight:700;color:var(--tx2);flex:none}
+.mrow .who{flex:1;min-width:0}
+.mrow .who b{display:block;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mrow .who span{font-size:12.5px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.qa{font-size:12px;font-weight:700;padding:3px 8px;border-radius:7px;background:rgba(52,211,153,.12);color:var(--ok);flex:none}
+.qa.mid{background:rgba(251,191,36,.12);color:var(--warn)}
+.chev{color:var(--tx3);transition:.25s;flex:none}
+.mail.open .chev{transform:rotate(90deg)}
+.mbody{display:none;padding:0 14px 14px}
+.mail.open .mbody{display:block;animation:in .35s}
+.env{border:1px solid var(--line);border-radius:12px;background:#0b0d14;overflow:hidden}
+.env .h{padding:12px 16px;border-bottom:1px solid var(--line);font-size:13px;color:var(--tx3);display:grid;gap:3px}
+.env .h b{color:var(--tx);font-weight:600}
+.env .t{padding:16px;font-size:14.5px;line-height:1.65;white-space:pre-wrap;color:#d9dce6;word-wrap:break-word}
+.mfoot{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
+.mfoot .why{margin:0;flex:1;min-width:200px;font-size:12.5px;color:var(--tx3)}
+.fulist{display:grid;gap:8px;margin-top:12px}
+.fu{display:flex;gap:12px;align-items:center;padding:10px 14px;border:1px solid var(--line);border-radius:12px;font-size:14px}
+.fu span{color:var(--tx3);font-size:12.5px}
+.mobnav{display:none;position:fixed;left:14px;right:14px;bottom:14px;z-index:30;background:rgba(18,20,30,.92);backdrop-filter:blur(14px);border:1px solid var(--line2);border-radius:16px;padding:6px;gap:6px}
+.mobnav button{flex:1;padding:11px;border-radius:11px;font-weight:600;font-size:14px;color:var(--tx2)}
+.mobnav button.on{background:var(--card2);color:var(--tx)}
+@media (prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}.reveal{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+<div class="bg"><i></i><i></i><i></i></div>
+
+<!-- ===== logowanie ===== -->
+<section class="login" id="login">
+  <div class="card">
+    <div class="logo" style="justify-content:center"><b>✉</b></div>
+    <h1>Cold Mail <span class="grad">AI</span></h1>
+    <p>Wpisz klucz dostępu do panelu.</p>
+    <form id="loginForm">
+      <input id="keyIn" type="password" placeholder="klucz dostępu" autocomplete="current-password">
+      <button class="btn pri" type="submit">Wejdź do panelu</button>
+      <div class="err" id="loginErr"></div>
+    </form>
+  </div>
+</section>
+
+<!-- ===== aplikacja ===== -->
+<div id="app" class="hide">
+<header class="top">
+  <div class="wrap">
+    <div class="logo"><b>✉</b>Cold Mail <span>AI</span></div>
+    <nav class="tabs">
+      <button data-v="panel" class="on">Panel</button>
+      <button data-v="maile">Maile na dziś</button>
+      <button data-v="nowa">Nowa kampania</button>
+    </nav>
+    <div class="right">
+      <span class="pill" id="sysPill"><span class="dot"></span><span>…</span></span>
+      <button class="icon-btn" id="refresh" title="Odśwież"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 4v5h-5"/></svg></button>
+      <button class="icon-btn" id="logout" title="Wyloguj"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l-5-5 5-5"/><path d="M5 12h12"/></svg></button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- PANEL -->
+  <section class="view on" id="v-panel">
+    <div class="hello">
+      <div>
+        <h1 id="greet">Dzień dobry, Phillip</h1>
+        <p id="updated">Ładuję dane…</p>
+      </div>
+      <button class="btn pri" data-go="nowa">＋ Nowa kampania</button>
+    </div>
+
+    <div class="kpis" id="kpis">
+      <div class="card kpi skel" style="height:128px"></div><div class="card kpi skel" style="height:128px"></div><div class="card kpi skel" style="height:128px"></div><div class="card kpi skel" style="height:128px"></div><div class="card kpi skel" style="height:128px"></div>
+    </div>
+
+    <div class="alerts sec" id="alerts"></div>
+
+    <div class="grid2 sec">
+      <div class="card reveal">
+        <h2>📋 Kampanie <small id="campCount"></small></h2>
+        <div id="camps" style="margin-top:16px"><div class="skel" style="height:180px"></div></div>
+      </div>
+      <div style="display:grid;gap:18px;align-content:start">
+        <div class="card reveal">
+          <h2>🗓️ Harmonogram <small>najbliższe 10 dni roboczych</small></h2>
+          <div class="chart" id="chart"></div>
+          <div class="legend"><span style="--c:var(--a1)">nowe maile</span><span style="--c:var(--a2)">follow-upy</span><span style="--c:var(--warn)">ważna data</span></div>
+          <div class="notes" id="notes"></div>
+        </div>
+        <div class="card reveal">
+          <h2>⚙️ Sterowanie</h2>
+          <div class="sys" style="margin-top:14px">
+            <div class="sw"><div class="tx"><b>Wstrzymaj cały system</b><span>Nic nie jest szukane ani wysyłane</span></div><button class="toggle red" id="tgSys" aria-label="Wstrzymaj system"></button></div>
+            <div class="sw"><div class="tx"><b>Tryb testowy</b><span>Maile idą tylko do Ciebie, nie do firm</span></div><button class="toggle amber" id="tgTest" aria-label="Tryb testowy"></button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="foot">Odświeża się samo co 5 minut · <a href="https://mrozikdigital.com" target="_blank" rel="noopener">MrozikDigital</a></p>
+  </section>
+
+  <!-- MAILE NA DZIŚ -->
+  <section class="view" id="v-maile">
+    <div class="hello">
+      <div>
+        <h1 id="qTitle">Maile na dziś</h1>
+        <p id="qSub">Ładuję kolejkę…</p>
+      </div>
+      <button class="btn" id="qRefresh">↻ Odśwież</button>
+    </div>
+    <div class="alerts" id="qAlerts"></div>
+    <div id="qList"><div class="card"><div class="skel" style="height:260px"></div></div></div>
+  </section>
+
+  <!-- NOWA KAMPANIA -->
+  <section class="view" id="v-nowa">
+    <div id="sForm">
+      <div class="hero">
+        <span class="pill"><span class="dot c-ok" style="color:var(--a2)"></span>AI sprawdzi rynek, zanim cokolwiek wyślesz</span>
+        <h1 style="margin-top:18px">Znajdź firmy, którym<br><span class="grad">automatyzacja AI</span> się opłaci</h1>
+        <p>Wpisz branżę i miasto. AI przejrzy Google Maps, sprawdzi strony firm i powie, czy kampania ma sens.</p>
+      </div>
+      <form class="search" id="searchForm">
+        <div class="box">
+          <div class="fld"><label for="fBr">Branża</label><input id="fBr" type="text" placeholder="np. gabinety stomatologiczne" autocomplete="off" required></div>
+          <div class="fld"><label for="fMi">Miasto</label><input id="fMi" type="text" placeholder="np. Rzeszów" autocomplete="off" required></div>
+          <button class="btn pri go" type="submit">Oceń rynek →</button>
+        </div>
+      </form>
+      <div class="opts">
+        <div class="rng"><div class="top"><label for="fDni">Ile dni trwa kampania</label><output id="oDni">14 <small>dni</small></output></div><input id="fDni" type="range" min="3" max="60" value="14"><div class="hint" id="hDni"></div></div>
+        <div class="rng"><div class="top"><label for="fMa">Nowe maile dziennie</label><output id="oMa">15 <small>/ dzień</small></output></div><input id="fMa" type="range" min="1" max="50" value="15"><div class="hint" id="hMa"></div></div>
+      </div>
+      <div class="chips" id="chips"></div>
+    </div>
+
+    <div class="loading hide" id="sLoad">
+      <div class="orb"><i></i></div>
+      <h3>AI ocenia rynek</h3>
+      <div class="q" id="lQ"></div>
+      <div class="steps" id="lSteps"></div>
+      <div class="timer" id="lTimer">zwykle trwa to 1–2 minuty</div>
+    </div>
+
+    <div class="result hide" id="sRes"></div>
+  </section>
+</main>
+
+<nav class="mobnav"><button data-v="panel" class="on">Panel</button><button data-v="maile">Maile</button><button data-v="nowa">Nowa</button></nav>
+</div>
+
+<div class="modal" id="modal"><div class="card"><h3 id="mT"></h3><p id="mP"></p><div class="acts"><button class="btn ghost" id="mNo">Anuluj</button><button class="btn pri" id="mYes">Tak</button></div></div></div>
+<div class="toasts" id="toasts"></div>
+
+<script>
+(function () {
+  'use strict';
+  var API = 'https://TWOJA-INSTANCJA.app.n8n.cloud/webhook/cold-mail-api/';
+  var KEY_STORE = 'cm_klucz';
+  var klucz = '';
+  try { klucz = localStorage.getItem(KEY_STORE) || ''; } catch (e) {}
+  var stan = null, timer = null;
+
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+  var esc = function (t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  var DNI = ['nd', 'pn', 'wt', 'śr', 'cz', 'pt', 'sb'];
+  var MIES = ['sty', 'lut', 'mar', 'kwi', 'maj', 'cze', 'lip', 'sie', 'wrz', 'paź', 'lis', 'gru'];
+  var dt = function (iso) { var d = new Date(iso + 'T12:00:00'); return d.getDate() + ' ' + MIES[d.getMonth()]; };
+  var odm = function (n, a, b, c) { n = Math.abs(n); if (n === 1) return a; var x = n % 10, y = n % 100; return (x >= 2 && x <= 4 && (y < 12 || y > 14)) ? b : c; };
+
+  /* ---------- API ---------- */
+  function get(path, q) {
+    var u = API + path + '?klucz=' + encodeURIComponent(klucz) + (q ? '&' + q : '');
+    return fetch(u, { cache: 'no-store' }).then(function (r) { return r.json(); });
+  }
+  function post(path, data) {
+    return fetch(API + path + '?klucz=' + encodeURIComponent(klucz), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(data || {}).toString()
+    }).then(function (r) { return r.json(); });
+  }
+
+  /* ---------- UI helpers ---------- */
+  function toast(msg, ic) {
+    var t = document.createElement('div');
+    t.className = 'toast';
+    t.innerHTML = '<span>' + (ic || '✅') + '</span><span>' + esc(msg) + '</span>';
+    $('#toasts').appendChild(t);
+    setTimeout(function () { t.classList.add('out'); setTimeout(function () { t.remove(); }, 300); }, 3800);
+  }
+  function ask(title, text, yesLabel, danger) {
+    return new Promise(function (res) {
+      $('#mT').textContent = title; $('#mP').textContent = text;
+      var y = $('#mYes'); y.textContent = yesLabel || 'Tak'; y.className = 'btn ' + (danger ? 'danger' : 'pri');
+      var m = $('#modal'); m.classList.add('on');
+      var done = function (v) { m.classList.remove('on'); y.onclick = null; $('#mNo').onclick = null; m.onclick = null; res(v); };
+      y.onclick = function () { done(true); };
+      $('#mNo').onclick = function () { done(false); };
+      m.onclick = function (e) { if (e.target === m) done(false); };
+    });
+  }
+  function countUp(el, to, dur) {
+    var from = 0, t0 = null; dur = dur || 1100;
+    var step = function (t) {
+      if (!t0) t0 = t;
+      var p = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+      el.textContent = Math.round(from + (to - from) * e);
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+  var io = 'IntersectionObserver' in window ? new IntersectionObserver(function (en) {
+    en.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('vis'); io.unobserve(e.target); } });
+  }, { threshold: .08 }) : null;
+  function reveal(root) { $$('.reveal', root).forEach(function (el) { if (io) io.observe(el); else el.classList.add('vis'); }); }
+  function animateBars(root) {
+    requestAnimationFrame(function () { requestAnimationFrame(function () {
+      $$('[data-w]', root).forEach(function (el) { el.style.width = el.getAttribute('data-w'); });
+      $$('[data-h]', root).forEach(function (el) { el.style.height = el.getAttribute('data-h'); });
+    }); });
+  }
+
+  /* ---------- widoki ---------- */
+  function show(v) {
+    $$('.view').forEach(function (x) { x.classList.toggle('on', x.id === 'v-' + v); });
+    $$('[data-v]').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-v') === v); });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (v === 'nowa' && !$('#sForm').classList.contains('hide')) setTimeout(function () { $('#fBr').focus(); }, 300);
+    if (v === 'maile') kolejka();
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-v],[data-go]');
+    if (b) show(b.getAttribute('data-v') || b.getAttribute('data-go'));
+  });
+
+  /* ---------- logowanie ---------- */
+  function wejdz() {
+    $('#login').classList.add('hide'); $('#app').classList.remove('hide');
+    var h = new Date().getHours();
+    $('#greet').innerHTML = (h < 5 ? 'Dobranoc' : h < 12 ? 'Dzień dobry' : h < 18 ? 'Cześć' : 'Dobry wieczór') + ', <span class="grad">Phillip</span>';
+    reveal(document);
+    odswiez();
+    clearInterval(timer); timer = setInterval(function () { if (!document.hidden) odswiez(true); }, 300000);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden && stan && Date.now() - new Date(stan.czas).getTime() > 300000) odswiez(true); });
+  }
+  $('#loginForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var k = $('#keyIn').value.trim(); if (!k) return;
+    var btn = $('#loginForm .btn'); btn.disabled = true; btn.textContent = 'Sprawdzam…';
+    klucz = k;
+    get('stan').then(function (d) {
+      if (!d || !d.ok) throw new Error('zly');
+      try { localStorage.setItem(KEY_STORE, k); } catch (er) {}
+      stan = d; wejdz();
+    }).catch(function () {
+      $('#loginErr').textContent = 'Zły klucz albo brak połączenia z n8n.';
+      $('#login .card').classList.remove('shake'); void $('#login .card').offsetWidth; $('#login .card').classList.add('shake');
+    }).then(function () { btn.disabled = false; btn.textContent = 'Wejdź do panelu'; });
+  });
+  $('#logout').addEventListener('click', function () {
+    try { localStorage.removeItem(KEY_STORE); } catch (e) {}
+    location.reload();
+  });
+
+  /* ---------- panel ---------- */
+  function odswiez(cicho) {
+    var b = $('#refresh'); b.classList.add('spin');
+    return get('stan').then(function (d) {
+      if (!d || !d.ok) throw new Error('brak');
+      stan = d; rysuj(cicho);
+    }).catch(function () {
+      if (!cicho) toast('Nie udało się pobrać danych z n8n.', '⚠️');
+    }).then(function () { b.classList.remove('spin'); });
+  }
+
+  function rysuj(cicho) {
+    var d = stan;
+    var t = new Date(d.czas);
+    $('#updated').textContent = 'Stan z ' + t.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }) + ' · ' + DNI[t.getDay()] + ', ' + t.getDate() + ' ' + MIES[t.getMonth()];
+
+    var p = $('#sysPill');
+    if (d.system.wstrzymany) { p.className = 'pill c-bad'; p.lastElementChild.textContent = 'System wstrzymany'; }
+    else if (d.system.tryb_testowy) { p.className = 'pill c-warn'; p.lastElementChild.textContent = 'Tryb testowy'; }
+    else { p.className = 'pill c-ok'; p.lastElementChild.textContent = 'Działa normalnie'; }
+    $('#tgSys').classList.toggle('on', d.system.wstrzymany);
+    $('#tgTest').classList.toggle('on', d.system.tryb_testowy);
+
+    var aktywne = d.kampanie.filter(function (k) { return k.status === 'aktywna' || k.status === 'wyczerpana'; });
+    var pct = d.dzis.limit ? Math.min(100, Math.round(d.dzis.nowe / d.dzis.limit * 100)) : 0;
+    var kp = [
+      { l: '📤 Nowe maile dziś', v: d.dzis.nowe, s: 'z ' + d.dzis.limit + ' na dziś', bar: pct, suf: '<small> / ' + d.dzis.limit + '</small>' },
+      { l: '🔁 Follow-upy dziś', v: d.dzis.follow, s: d.dzis.zwroty ? d.dzis.zwroty + ' ' + odm(d.dzis.zwroty, 'zwrot', 'zwroty', 'zwrotów') : 'bez zwrotów' },
+      { l: '✅ Gotowe do wysłania', v: d.liczniki.gotowe, s: 'maile po kontroli AI' },
+      { l: '🔎 Czeka na research', v: d.liczniki.research, s: 'firmy do sprawdzenia' },
+      { l: '🔥 Zainteresowani', v: d.liczniki.zainteresowani, s: d.liczniki.odpowiedzi_lacznie + ' ' + odm(d.liczniki.odpowiedzi_lacznie, 'odpowiedź', 'odpowiedzi', 'odpowiedzi') + ' · ' + d.liczniki.wyslane_lacznie + ' wysłanych' }
+    ];
+    $('#kpis').innerHTML = kp.map(function (k) {
+      return '<div class="card kpi"><div class="lbl">' + k.l + '</div><div class="num"><span data-n="' + k.v + '">' + (cicho ? k.v : 0) + '</span>' + (k.suf || '') + '</div><div class="sub">' + esc(k.s) + '</div>' + (k.bar != null ? '<div class="bar"><i data-w="' + k.bar + '%"></i></div>' : '') + '</div>';
+    }).join('');
+    if (!cicho) $$('#kpis [data-n]').forEach(function (el) { countUp(el, +el.getAttribute('data-n')); });
+    $$('#kpis .kpi').forEach(function (c) { c.addEventListener('mousemove', function (e) { var r = c.getBoundingClientRect(); c.style.setProperty('--mx', (e.clientX - r.left) + 'px'); c.style.setProperty('--my', (e.clientY - r.top) + 'px'); }); });
+
+    var al = d.ostrzezenia.map(function (o) {
+      var cls = o.typ === 'stop' || o.typ === 'brak' ? 'bad' : 'warn';
+      return '<div class="alert ' + cls + '"><span>' + (cls === 'bad' ? '⛔' : '⚠️') + '</span><span>' + esc(o.tekst) + '</span></div>';
+    });
+    if (d.system.tryb_testowy && !d.system.wstrzymany) al.push('<div class="alert info"><span>🧪</span><span>Tryb testowy jest włączony: maile trafiają tylko do Ciebie.</span></div>');
+    $('#alerts').innerHTML = al.join('');
+    $('#alerts').classList.toggle('hide', !al.length);
+
+    $('#campCount').textContent = aktywne.length + ' ' + odm(aktywne.length, 'aktywna', 'aktywne', 'aktywnych') + (d.kampanie.length > aktywne.length ? ' · ' + d.kampanie.length + ' łącznie' : '');
+    $('#camps').innerHTML = d.kampanie.length ? d.kampanie.map(kartaKampanii).join('') : '<div class="empty">Nie masz jeszcze żadnej kampanii.<br><button class="btn pri" style="margin-top:14px" data-go="nowa">Utwórz pierwszą</button></div>';
+
+    var max = Math.max.apply(null, d.harmonogram.map(function (h) { return h.nowe + h.follow; }).concat([1]));
+    $('#chart').innerHTML = d.harmonogram.map(function (h, i) {
+      var dd = new Date(h.data + 'T12:00:00'), suma = h.nowe + h.follow;
+      return '<div class="col">' + (h.uwagi.length ? '<span class="flag"></span>' : '') +
+        '<div class="tip"><b>' + DNI[dd.getDay()] + ' ' + dt(h.data) + '</b><br>' + h.nowe + ' nowych · ' + h.follow + ' follow-upów' + (h.uwagi.length ? '<br>' + h.uwagi.map(esc).join('<br>') : '') + '</div>' +
+        '<span class="t">' + suma + '</span><div class="stack"><i class="n" data-h="' + (h.nowe / max * 100) + '%"></i><i class="f" data-h="' + (h.follow / max * 100) + '%"></i></div>' +
+        '<span class="d">' + (i === 0 && h.data === d.czas.slice(0, 10) ? 'dziś' : DNI[dd.getDay()] + ' ' + dd.getDate()) + '</span></div>';
+    }).join('');
+    var uw = [];
+    d.harmonogram.forEach(function (h) { h.uwagi.forEach(function (u) { uw.push('<div>📌 <b>' + dt(h.data) + '</b> · ' + esc(u) + '</div>'); }); });
+    $('#notes').innerHTML = uw.join('') || '<div class="c-mut">Follow-upy liczone szacunkowo: po 3 i 7 dniach roboczych od pierwszego maila.</div>';
+
+    reveal(document);
+    animateBars(document);
+  }
+
+  function kartaKampanii(k) {
+    var wys = k.wyslane, got = k.gotowe, spr = k.do_sprawdzenia;
+    var cel = Math.max(1, k.limit * Math.max(1, Math.round(k.dni * 5 / 7)));
+    var w = function (x) { return Math.min(100, x / cel * 100).toFixed(1) + '%'; };
+    var proc = wys ? Math.round(k.odpowiedzi / wys * 100) : 0;
+    var aktywna = k.status === 'aktywna' || k.status === 'wyczerpana';
+    var vt = k.werdykt === 'WARTO' ? 'g' : k.werdykt === 'NIE WARTO' ? 'r' : 'y';
+    var acts = [];
+    if (k.status === 'aktywna' || k.status === 'wyczerpana') acts.push('<button class="btn" data-akcja="wstrzymaj" data-id="' + esc(k.id) + '">⏸ Wstrzymaj</button>');
+    if (k.status === 'wstrzymana') acts.push('<button class="btn good" data-akcja="wznow" data-id="' + esc(k.id) + '">▶ Wznów</button>');
+    if (k.status !== 'zakonczona') acts.push('<button class="btn danger" data-akcja="zakoncz" data-id="' + esc(k.id) + '">■ Zakończ</button>');
+    var stT = { aktywna: 'aktywna', wstrzymana: 'wstrzymana', zakonczona: 'zakończona', wyczerpana: 'brak firm' }[k.status] || k.status;
+    return '<div class="camp">' +
+      '<div class="hd"><div><div class="ttl">' + esc(k.branza) + ' <span>· ' + esc(k.miasto) + '</span></div>' +
+      '<div class="meta">' + (k.start ? dt(k.start) + ' → ' + dt(k.koniec) : '') + (aktywna ? ' · dzień ' + k.dzien + ' z ' + k.dni + ' · ' + k.limit + ' maili/dzień' : '') + '</div></div>' +
+      '<span class="st ' + esc(k.status) + '">' + esc(stT) + '</span>' +
+      '<div class="score"><span class="vtag ' + vt + '" style="font-size:11px;padding:3px 9px">' + esc(k.werdykt || '') + '</span><b>' + (k.ocena || '–') + '</b>/10</div></div>' +
+      '<div class="prog"><div class="row"><span>Postęp kampanii</span><span>' + wys + ' / ~' + cel + ' maili</span></div>' +
+      '<div class="track"><i class="s1" data-w="' + w(wys) + '"></i><i class="s2" data-w="' + w(got) + '"></i><i class="s3" data-w="' + w(Math.round(spr * .6)) + '"></i></div>' +
+      '<div class="legend"><span style="--c:var(--a1)">wysłane ' + wys + '</span><span style="--c:var(--a2)">gotowe ' + got + '</span><span style="--c:rgba(255,255,255,.3)">w researchu ' + spr + '</span>' + (k.szuka ? '<span style="--c:var(--ok)">AI szuka kolejnych firm</span>' : '') + '</div></div>' +
+      '<div class="stats"><div><b>' + k.znalezione + '</b><span>znalezione firmy</span></div><div><b>' + k.follow + '</b><span>follow-upy</span></div><div><b>' + k.odpowiedzi + '</b><span>odpowiedzi · ' + proc + '%</span></div><div><b>' + k.zainteresowani + '</b><span>zainteresowani</span></div></div>' +
+      '<details class="more"><summary>Ocena AI i szczegóły</summary>' +
+      '<div class="why">' + esc(k.uzasadnienie) + '</div>' +
+      (k.rynek_firm ? '<div class="tags"><span class="tag">rynek: ok. ' + k.rynek_firm + ' firm</span><span class="tag">z mailem: ok. ' + (k.rynek_z_mailem || '?') + '</span><span class="tag">odrzucone przez AI: ' + k.odrzucone + '</span><span class="tag">złe maile: ' + k.zle_maile + '</span><span class="tag">nie teraz: ' + k.nie_teraz + '</span><span class="tag">odmowy: ' + k.odmowy + '</span></div>' : '') +
+      '<div class="pc"><div><h4 class="c-ok">Dlaczego warto</h4><ul>' + k.plusy.map(function (x) { return '<li><span class="c-ok">+</span>' + esc(x) + '</li>'; }).join('') + '</ul></div>' +
+      '<div><h4 class="c-bad">Na co uważać</h4><ul>' + k.minusy.map(function (x) { return '<li><span class="c-bad">−</span>' + esc(x) + '</li>'; }).join('') + '</ul></div></div></details>' +
+      (acts.length ? '<div class="acts">' + acts.join('') + '</div>' : '') + '</div>';
+  }
+
+  $('#camps').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-akcja]'); if (!b) return;
+    var a = b.getAttribute('data-akcja'), id = b.getAttribute('data-id');
+    var txt = { wstrzymaj: ['Wstrzymać kampanię?', 'Nowe maile i research dla tej kampanii się zatrzymają. Możesz ją potem wznowić.', 'Wstrzymaj', false],
+      wznow: ['Wznowić kampanię?', 'Kampania wróci do szukania firm i wysyłki.', 'Wznów', false],
+      zakoncz: ['Zakończyć kampanię?', 'Tego nie da się cofnąć. Nowe maile nie będą już wysyłane, odpowiedzi dalej będą obsługiwane.', 'Zakończ', true] }[a];
+    ask(txt[0], txt[1], txt[2], txt[3]).then(function (ok) {
+      if (!ok) return;
+      b.disabled = true;
+      post('sterowanie', { kampania_id: id, akcja: a }).then(function () { toast(txt[2] + ': gotowe'); return odswiez(true); })
+        .catch(function () { toast('Nie udało się zapisać zmiany.', '⚠️'); b.disabled = false; });
+    });
+  });
+
+  $('#tgSys').addEventListener('click', function () {
+    var on = !this.classList.contains('on'), el = this;
+    ask(on ? 'Wstrzymać cały system?' : 'Włączyć system z powrotem?', on ? 'Zatrzyma się szukanie firm, research i wysyłka we wszystkich kampaniach.' : 'Wszystkie aktywne kampanie wrócą do pracy.', on ? 'Wstrzymaj wszystko' : 'Włącz', on).then(function (ok) {
+      if (!ok) return;
+      el.classList.toggle('on', on);
+      post('sterowanie', { system: on ? 'stop' : 'start' }).then(function () { toast(on ? 'System wstrzymany' : 'System działa', on ? '⏸' : '▶'); odswiez(true); })
+        .catch(function () { el.classList.toggle('on', !on); toast('Nie udało się zapisać zmiany.', '⚠️'); });
+    });
+  });
+  $('#tgTest').addEventListener('click', function () {
+    var on = !this.classList.contains('on'), el = this;
+    ask(on ? 'Włączyć tryb testowy?' : 'Wyłączyć tryb testowy?', on ? 'Maile będą szły tylko na Twoją skrzynkę, nie do firm.' : 'Maile zaczną iść do prawdziwych firm.', on ? 'Włącz test' : 'Wyłącz test', !on).then(function (ok) {
+      if (!ok) return;
+      el.classList.toggle('on', on);
+      post('sterowanie', { tryb_testowy: on ? 'wlacz' : 'wylacz' }).then(function () { toast(on ? 'Tryb testowy włączony' : 'Maile idą do firm', '🧪'); odswiez(true); })
+        .catch(function () { el.classList.toggle('on', !on); toast('Nie udało się zapisać zmiany.', '⚠️'); });
+    });
+  });
+  $('#refresh').addEventListener('click', function () { odswiez(); });
+
+  /* ---------- maile na dziś ---------- */
+  var kol = null, znane = {};
+  function kolejka(cicho) {
+    var b = $('#qRefresh'); b.disabled = true;
+    return get('kolejka').then(function (d) {
+      if (!d || !d.ok) throw 0;
+      var stare = znane; znane = {};
+      d.kampanie.forEach(function (k) { k.maile.forEach(function (m) { znane[m.id] = 1; m._nowy = kol && !stare[m.id]; }); });
+      kol = d; rysujKolejke();
+    }).catch(function () { if (!cicho) toast('Nie udało się pobrać kolejki.', '⚠️'); })
+      .then(function () { b.disabled = false; });
+  }
+  $('#qRefresh').addEventListener('click', function () { kolejka(); });
+
+  function rysujKolejke() {
+    var d = kol, dd = new Date(d.data + 'T12:00:00');
+    var razem = d.kampanie.reduce(function (s, k) { return s + k.maile.length; }, 0);
+    var miejsc = d.kampanie.reduce(function (s, k) { return s + k.miejsca; }, 0);
+    var wys = d.kampanie.reduce(function (s, k) { return s + k.wyslane; }, 0);
+    var kiedy = d.dzisiaj ? 'dziś' : DNI[dd.getDay()] + ', ' + dt(d.data);
+    $('#qTitle').innerHTML = d.dzisiaj ? 'Maile na <span class="grad">dziś</span>' : 'Maile na <span class="grad">' + esc(['niedzielę','poniedziałek','wtorek','środę','czwartek','piątek','sobotę'][dd.getDay()]) + '</span>';
+    $('#qSub').textContent = d.dzisiaj
+      ? 'Te firmy dostaną dziś pierwszego maila (wysyłka 6:00–15:00, równo przez dzień). Już wysłane: ' + wys + '.'
+      : 'Na dziś wysyłka skończona. Tak wygląda kolejka na ' + kiedy + ', wysyłka od 6:00.';
+    var al = [];
+    if (d.wstrzymany) al.push('<div class="alert bad"><span>⛔</span><span>System jest wstrzymany, nic nie wyjdzie, dopóki go nie włączysz.</span></div>');
+    if (d.test) al.push('<div class="alert info"><span>🧪</span><span>Tryb testowy: te maile pójdą tylko na Twoją skrzynkę.</span></div>');
+    if (razem < miejsc) al.push('<div class="alert warn"><span>⚠️</span><span>Gotowych maili jest mniej niż limit (' + razem + ' z ' + miejsc + '). Research dorabia kolejne w tle, w ciągu dnia mogą dojść nowe.</span></div>');
+    $('#qAlerts').innerHTML = al.join(''); $('#qAlerts').classList.toggle('hide', !al.length);
+    if (!d.kampanie.length) { $('#qList').innerHTML = '<div class="card empty">Brak aktywnych kampanii, więc nic nie jest zaplanowane.<br><button class="btn pri" style="margin-top:14px" data-go="nowa">Utwórz kampanię</button></div>'; return; }
+    var nr = 0;
+    var html = '<div class="card"><div class="qhead"><div class="big"><span data-n="' + razem + '">' + razem + '</span><small> nowych maili ' + esc(kiedy) + '</small></div>' +
+      (d.followupy.length ? '<span class="pill c-mut">+ ' + d.followupy.length + ' ' + odm(d.followupy.length, 'follow-up', 'follow-upy', 'follow-upów') + '</span>' : '') + '</div>';
+    d.kampanie.forEach(function (k) {
+      html += '<div class="qcamp"><div class="hd"><b>' + esc(k.branza) + ' · ' + esc(k.miasto) + '</b><span>' + k.maile.length + ' z ' + k.miejsca + (d.dzisiaj && k.wyslane ? ' (już wysłane ' + k.wyslane + ')' : '') + ' · w rezerwie ' + k.rezerwa + '</span></div>';
+      if (!k.maile.length) html += '<div class="empty" style="padding:16px">' + (k.miejsca ? 'Brak gotowych maili, research jeszcze pracuje.' : 'Limit na ten dzień już wysłany.') + '</div>';
+      k.maile.forEach(function (m) {
+        nr++;
+        var oc = m.ocena ? '<span class="qa' + (m.ocena < 9 ? ' mid' : '') + '" title="ocena kontroli AI">' + m.ocena + '/10</span>' : '';
+        html += '<div class="mail' + (m._nowy ? ' fresh' : '') + '" data-id="' + m.id + '">' +
+          '<div class="mrow"><span class="nr">' + nr + '</span><div class="who"><b>' + esc(m.nazwa || m.email) + '</b><span>' + esc(m.email) + (m.strona ? ' · ' + esc(m.strona.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')) : '') + '</span></div>' + oc +
+          '<svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg></div>' +
+          '<div class="mbody"><div class="env"><div class="h"><div>Do: <b>' + esc(m.email) + '</b></div><div>Temat: <b>' + esc(m.temat) + '</b></div></div><div class="t">' + esc(m.tresc) + '</div></div>' +
+          '<div class="mfoot"><p class="why">' + (m.pomysl ? '💡 ' + esc(m.pomysl) : '') + '</p>' +
+          (m.strona ? '<a class="btn ghost" href="' + esc(m.strona) + '" target="_blank" rel="noopener">Strona firmy ↗</a>' : '') +
+          '<button class="btn danger" data-odrzuc="' + m.id + '">✕ Odrzuć i weź inną</button></div></div></div>';
+      });
+      html += '</div>';
+    });
+    html += '</div>';
+    if (d.followupy.length) {
+      html += '<div class="card sec"><h2>🔁 Follow-upy <small>idą automatycznie w tym samym wątku, AI pisze je przed wysyłką</small></h2><div class="fulist">' +
+        d.followupy.map(function (f) { return '<div class="fu"><b style="flex:1">' + esc(f.nazwa || f.email) + '</b><span>' + esc(f.email) + ' · ' + (f.etap === 1 ? 'przypomnienie' : 'ostatnia wiadomość') + '</span></div>'; }).join('') + '</div></div>';
+    }
+    $('#qList').innerHTML = html;
+  }
+
+  $('#qList').addEventListener('click', function (e) {
+    var odr = e.target.closest('[data-odrzuc]');
+    if (odr) {
+      var id = odr.getAttribute('data-odrzuc'), box = odr.closest('.mail');
+      ask('Odrzucić ten mail?', 'Ta firma nie dostanie maila, a w jej miejsce wskoczy następna gotowa z rezerwy.', 'Odrzuć', true).then(function (ok) {
+        if (!ok) return;
+        odr.disabled = true;
+        post('odrzuc', { id: id }).then(function (r) {
+          if (!r.ok) throw 0;
+          box.classList.add('gone');
+          toast('Odrzucone. Biorę następną firmę.', '🗑️');
+          setTimeout(function () { kolejka(true); }, 450);
+        }).catch(function () { odr.disabled = false; toast('Nie udało się odrzucić (może mail już wyszedł).', '⚠️'); kolejka(true); });
+      });
+      return;
+    }
+    if (e.target.closest('a,button')) return;
+    var row = e.target.closest('.mrow'); if (row) row.parentNode.classList.toggle('open');
+  });
+
+  /* ---------- nowa kampania ---------- */
+  var fDni = $('#fDni'), fMa = $('#fMa');
+  function suwaki() {
+    [fDni, fMa].forEach(function (r) { r.style.setProperty('--p', ((r.value - r.min) / (r.max - r.min) * 100) + '%'); });
+    var dni = +fDni.value, ma = +fMa.value, rob = Math.round(dni * 5 / 7);
+    $('#oDni').innerHTML = dni + ' <small>' + odm(dni, 'dzień', 'dni', 'dni') + '</small>';
+    $('#oMa').innerHTML = ma + ' <small>/ dzień</small>';
+    $('#hDni').textContent = 'ok. ' + rob + ' ' + odm(rob, 'dzień roboczy', 'dni robocze', 'dni roboczych') + ' wysyłki';
+    var suma = ma * rob, inne = stan ? stan.dzis.limit : 0;
+    $('#hMa').textContent = 'razem ok. ' + suma + ' firm' + (inne ? ' · z innymi kampaniami ' + (inne + ma) + ' maili/dzień' : '') + (inne + ma > 60 ? ' · dużo jak na jedną skrzynkę' : '');
+  }
+  fDni.addEventListener('input', suwaki); fMa.addEventListener('input', suwaki); suwaki();
+
+  var PODP = [['gabinety stomatologiczne', 'Rzeszów'], ['biura rachunkowe', 'Kraków'], ['salony beauty', 'Mielec'], ['warsztaty samochodowe', 'Lublin'], ['biura nieruchomości', 'Katowice']];
+  $('#chips').innerHTML = PODP.map(function (p, i) { return '<button class="chip" data-i="' + i + '">' + esc(p[0]) + ' · ' + esc(p[1]) + '</button>'; }).join('');
+  $('#chips').addEventListener('click', function (e) {
+    var c = e.target.closest('.chip'); if (!c) return;
+    var p = PODP[+c.getAttribute('data-i')]; $('#fBr').value = p[0]; $('#fMi').value = p[1]; $('#fBr').focus();
+  });
+
+  var KROKI = ['Szukam firm w Google Maps', 'Sprawdzam ich strony i maile', 'Liczę wielkość rynku', 'AI ocenia, czy warto', 'Przygotowuję plan kampanii'];
+  var ocena = null, poll = null;
+
+  function etap(n) {
+    $('#lSteps').innerHTML = KROKI.map(function (k, i) {
+      return '<div class="step ' + (i < n ? 'done' : i === n ? 'now' : '') + '"><span class="ic">' + (i < n ? '✓' : '') + '</span>' + esc(k) + '</div>';
+    }).join('');
+  }
+  function tryb(t) {
+    $('#sForm').classList.toggle('hide', t !== 'form');
+    $('#sLoad').classList.toggle('hide', t !== 'load');
+    $('#sRes').classList.toggle('hide', t !== 'res');
+  }
+
+  $('#searchForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var br = $('#fBr').value.trim(), mi = $('#fMi').value.trim();
+    if (!br || !mi) return;
+    var dane = { branza: br, miasto: mi, dni: fDni.value, maile: fMa.value };
+    tryb('load'); etap(0);
+    $('#lQ').textContent = br + ' · ' + mi;
+    var t0 = Date.now(), krok = 0;
+    var tick = setInterval(function () {
+      var s = Math.round((Date.now() - t0) / 1000);
+      $('#lTimer').textContent = s + ' s · zwykle trwa to 1–2 minuty';
+      var cel = s < 6 ? 0 : s < 14 ? 1 : s < 20 ? 2 : s < 75 ? 3 : 4;
+      if (cel !== krok) { krok = cel; etap(krok); }
+    }, 500);
+    var stop = function () { clearInterval(tick); clearTimeout(poll); };
+    post('ocena', dane).then(function (r) {
+      if (!r.ok) throw new Error(r.powod || 'Nie udało się zlecić oceny.');
+      var id = r.ocena_id;
+      var sprawdz = function () {
+        get('wynik', 'id=' + encodeURIComponent(id)).then(function (w) {
+          if (w.status === 'gotowa') { stop(); etap(5); setTimeout(function () { ocena = { id: id, dane: w }; pokazWynik(w); }, 600); }
+          else if (w.status === 'blad' || w.status === 'brak' || Date.now() - t0 > 300000) { stop(); bladOceny(w.powod || 'Ocena trwała za długo.'); }
+          else poll = setTimeout(sprawdz, 4000);
+        }).catch(function () { poll = setTimeout(sprawdz, 6000); });
+      };
+      poll = setTimeout(sprawdz, 8000);
+    }).catch(function (er) { stop(); bladOceny(er.message); });
+  });
+
+  function bladOceny(msg) {
+    tryb('res');
+    $('#sRes').innerHTML = '<div class="card" style="text-align:center;padding:40px"><div style="font-size:40px">😕</div><h2 style="justify-content:center;margin-top:10px">Coś poszło nie tak</h2><p class="c-mut" style="margin-top:8px">' + esc(msg) + '</p><button class="btn pri" style="margin-top:20px" id="again">Spróbuj jeszcze raz</button></div>';
+    $('#again').onclick = function () { tryb('form'); };
+  }
+
+  function pokazWynik(w) {
+    var o = w.wynik || {}, r = o.rynek || {};
+    var vt = o.werdykt === 'WARTO' ? 'g' : o.werdykt === 'NIE WARTO' ? 'r' : 'y';
+    var tyt = { g: 'Ta kampania ma sens', y: 'Może zadziałać, ale z głową', r: 'Lepiej odpuścić tę kampanię' }[vt];
+    var C = 2 * Math.PI * 96, rob = Math.round(w.dni * 5 / 7);
+    tryb('res');
+    $('#sRes').innerHTML =
+      '<div class="card"><div class="verdict">' +
+        '<div class="gauge"><svg width="220" height="220" viewBox="0 0 220 220"><defs><linearGradient id="gg" x1="0" x2="1"><stop offset="0" stop-color="#7c5cff"/><stop offset="1" stop-color="' + (vt === 'r' ? '#f87171' : vt === 'y' ? '#fbbf24' : '#22d3ee') + '"/></linearGradient></defs><circle class="bgc" cx="110" cy="110" r="96"/><circle class="fg" id="gFg" cx="110" cy="110" r="96" stroke-dasharray="' + C + '" stroke-dashoffset="' + C + '"/></svg><div class="c"><div><b id="gNum">0</b><span>na 10</span></div></div></div>' +
+        '<div><span class="vtag ' + vt + '">' + esc(o.werdykt) + '</span><h2>' + tyt + '</h2><p>' + esc(o.podsumowanie) + '</p>' +
+        '<div class="market"><div><b>' + (r.w_probce != null ? r.w_probce : '–') + '</b><span>firm w próbce Google</span></div><div><b>' + (r.ze_strona != null ? r.ze_strona : '–') + '</b><span>z własną stroną</span></div><div><b>~' + (o.szacunek_firm || '?') + '</b><span>firm w całym mieście</span></div><div><b>~' + (o.szacunek_z_mailem || '?') + '</b><span>z maila do znalezienia</span></div></div>' +
+        (r.blad_google ? '<div class="alert warn" style="margin-top:14px"><span>⚠️</span><span>Google Maps zwróciło błąd, ocena jest ostrożniejsza.</span></div>' : '') +
+      '</div></div></div>' +
+      '<div class="cols3"><div class="card reveal"><h2>👍 Dlaczego warto</h2><ul class="list plus">' + (o.powody_za || []).map(function (x, i) { return '<li style="animation-delay:' + (.1 + i * .08) + 's"><i>+</i>' + esc(x) + '</li>'; }).join('') + '</ul></div>' +
+      '<div class="card reveal"><h2>⚠️ Na co uważać</h2><ul class="list minus">' + (o.powody_przeciw || []).map(function (x, i) { return '<li style="animation-delay:' + (.1 + i * .08) + 's"><i>!</i>' + esc(x) + '</li>'; }).join('') + '</ul></div></div>' +
+      ((o.alternatywy || []).length ? '<div class="card sec reveal"><h2>💡 Lepsze branże w tym mieście</h2><div class="tags">' + o.alternatywy.map(function (a) { return '<button class="tag chip alt" data-b="' + esc(a) + '">' + esc(a) + ' →</button>'; }).join('') + '</div></div>' : '') +
+      ((o.bolaczki_branzy || []).length ? '<div class="card sec reveal"><h2>🎯 O czym będą maile <small>problemy branży, które AI weźmie na tapet</small></h2><div class="pains">' + o.bolaczki_branzy.map(function (b) { return '<div class="pain"><b>' + esc(b.bolaczka) + '</b><p>' + esc(b.rozwiazanie) + '</p><em>→ ' + esc(b.korzysc) + '</em></div>'; }).join('') + '</div></div>' : '') +
+      ((o.warianty_wyszukiwania || []).length ? '<div class="card sec reveal"><h2>🔎 Czego AI będzie szukać</h2><div class="tags">' + o.warianty_wyszukiwania.map(function (x) { return '<span class="tag">' + esc(x) + '</span>'; }).join('') + '</div></div>' : '') +
+      '<div class="decide"><div class="tx"><b>' + esc(w.branza) + ' · ' + esc(w.miasto) + '</b><span>' + w.dni + ' dni · ' + w.maile + ' nowych maili dziennie · ok. ' + (w.maile * rob) + ' firm</span></div>' +
+      '<button class="btn ghost" id="nieStart">Nie startuj</button><button class="btn pri" id="tak">🚀 Startuj kampanię</button></div>';
+    reveal($('#sRes'));
+    requestAnimationFrame(function () { requestAnimationFrame(function () {
+      $('#gFg').style.strokeDashoffset = C * (1 - (o.ocena || 0) / 10);
+      countUp($('#gNum'), o.ocena || 0, 1500);
+    }); });
+    $$('#sRes .alt').forEach(function (b) { b.onclick = function () { $('#fBr').value = b.getAttribute('data-b'); tryb('form'); $('#fBr').focus(); }; });
+    $('#nieStart').onclick = function () { ocena = null; tryb('form'); toast('Nic nie zostało uruchomione.', '👌'); };
+    $('#tak').onclick = function () {
+      var btn = this; btn.disabled = true; btn.textContent = 'Uruchamiam…';
+      post('start', { ocena_id: ocena.id }).then(function (r) {
+        if (!r.ok) throw new Error(r.powod || 'Nie udało się uruchomić.');
+        confetti();
+        toast('Kampania wystartowała. Szczegóły poszły na Telegram.', '🚀');
+        $('#fBr').value = ''; $('#fMi').value = ''; ocena = null;
+        setTimeout(function () { tryb('form'); show('panel'); odswiez(); }, 1200);
+      }).catch(function (er) { toast(er.message, '⚠️'); btn.disabled = false; btn.textContent = '🚀 Startuj kampanię'; });
+    };
+  }
+
+  function confetti() {
+    var c = document.createElement('canvas'); c.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:70';
+    c.width = innerWidth; c.height = innerHeight; document.body.appendChild(c);
+    var x = c.getContext('2d'), kol = ['#7c5cff', '#22d3ee', '#34d399', '#fbbf24', '#ec4899'], p = [];
+    for (var i = 0; i < 140; i++) p.push({ x: innerWidth / 2, y: innerHeight * .7, vx: (Math.random() - .5) * 16, vy: -Math.random() * 18 - 6, r: Math.random() * 6 + 3, c: kol[i % 5], a: Math.random() * 6 });
+    var t = 0;
+    (function f() {
+      x.clearRect(0, 0, c.width, c.height);
+      p.forEach(function (q) { q.vy += .45; q.x += q.vx; q.y += q.vy; q.a += .2; x.save(); x.translate(q.x, q.y); x.rotate(q.a); x.fillStyle = q.c; x.fillRect(-q.r / 2, -q.r / 2, q.r, q.r * .6); x.restore(); });
+      if (++t < 120) requestAnimationFrame(f); else c.remove();
+    })();
+  }
+
+  /* ---------- start ---------- */
+  if (klucz) {
+    get('stan').then(function (d) { if (!d || !d.ok) throw 0; stan = d; wejdz(); suwaki(); })
+      .catch(function () { $('#keyIn').focus(); });
+  } else { $('#keyIn').focus(); }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,372 @@
+{
+  "name": "Cold Mail AI — Weryfikacja adresów",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 30 5 * * *"
+            },
+            {
+              "field": "cronExpression",
+              "expression": "0 0 6-14 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "faf20d93-e134-41ba-ab23-fab5ed9bd167",
+      "name": "5:30 i co godzinę 6–14 (pn–pt)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "status",
+              "keyValue": "gotowa"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "id": "7c2e457e-2186-431e-a7c5-6a8b15b2266b",
+      "name": "Gotowe maile do sprawdzenia",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        96
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const FORMAT = /^[a-z0-9._%+-]+@([a-z0-9-]+\\.)+[a-z]{2,}$/;\nconst ATRAPY = /(example|przyklad|twoj(a|e)?(mail|email|adres)|your(mail|email)|email@email|test@test|^noreply|^no-reply|^nie-odpowiadaj|^donotreply|\\.(png|jpe?g|gif|webp|svg)$)/;\nconst firmy = $input.all().map(function (i) { return i.json; }).filter(function (f) { return f && f.id && f.email && !f.email_sprawdzony; }).slice(0, 60);\nconst grupy = {};\nfirmy.forEach(function (f) {\n  const email = String(f.email).trim().toLowerCase();\n  let blad = '';\n  if (!FORMAT.test(email)) blad = 'adres ma zły format';\n  else if (ATRAPY.test(email)) blad = 'adres wygląda na przykładowy albo bez odpowiedzi';\n  const domena = blad ? '-' : email.split('@')[1];\n  const klucz = blad ? 'zle-' + f.id : domena;\n  if (!grupy[klucz]) grupy[klucz] = { domena: domena, blad: blad, firmy: [] };\n  grupy[klucz].firmy.push({ id: f.id, email: email });\n});\nreturn Object.keys(grupy).map(function (k) { return { json: grupy[k] }; });"
+      },
+      "id": "51b23992-9599-4aa6-a55e-d842eb94c87d",
+      "name": "Wybierz adresy do sprawdzenia",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://dns.google/resolve?type=MX&name=' + encodeURIComponent($json.blad ? 'invalid.invalid' : $json.domena) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "id": "da735606-df24-4d88-8058-72f35207f8c3",
+      "name": "DNS: serwer poczty (MX)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        672,
+        96
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://dns.google/resolve?type=A&name=' + encodeURIComponent($('Wybierz adresy do sprawdzenia').item.json.blad ? 'invalid.invalid' : $('Wybierz adresy do sprawdzenia').item.json.domena) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "id": "7564b234-fefc-4ecc-bdb5-c2233fd8f75a",
+      "name": "DNS: adres domeny (A)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        896,
+        96
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const grupy = $('Wybierz adresy do sprawdzenia').all().map(function (i) { return i.json; });\nconst mx = $('DNS: serwer poczty (MX)').all().map(function (i) { return i.json || {}; });\nconst a = $input.all().map(function (i) { return i.json || {}; });\nconst wynik = [];\ngrupy.forEach(function (g, i) {\n  let ocena = 'ok';\n  let powod = '';\n  if (g.blad) { ocena = 'zly'; powod = g.blad; }\n  else {\n    const m = mx[i] || {};\n    const rekordyMx = (m.Answer || []).filter(function (r) { return r.type === 15; });\n    const prawdziweMx = rekordyMx.filter(function (r) { return !/^0\\s+\\.?$/.test(String(r.data).trim()); });\n    const rekordyA = ((a[i] || {}).Answer || []).filter(function (r) { return r.type === 1 || r.type === 5; });\n    if (m.Status === 3) { ocena = 'zly'; powod = 'domena ' + g.domena + ' nie istnieje'; }\n    else if (m.Status === 0 && prawdziweMx.length) ocena = 'ok';\n    else if (m.Status === 0 && rekordyMx.length) { ocena = 'zly'; powod = 'domena ' + g.domena + ' nie przyjmuje poczty'; }\n    else if (m.Status === 0 && (a[i] || {}).Status === 0 && rekordyA.length) ocena = 'ok';\n    else if (m.Status === 0) { ocena = 'zly'; powod = 'domena ' + g.domena + ' nie ma serwera poczty'; }\n    else ocena = 'pozniej';\n  }\n  if (ocena === 'pozniej') return;\n  g.firmy.forEach(function (f) { wynik.push({ json: { id: f.id, email: f.email, ok: ocena === 'ok', powod: powod ? 'zły adres: ' + powod + ' (sprawdzone przed wysyłką)' : '' } }); });\n});\nreturn wynik;"
+      },
+      "id": "bab7a1aa-996f-4645-9184-553bc6522c69",
+      "name": "Oceń adresy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "363d3337-2298-4506-ba08-bd6fe1819e2d",
+      "name": "Adres istnieje?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1344,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{ $json.id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "email_sprawdzony": "ok"
+          },
+          "schema": [
+            {
+              "id": "email_sprawdzony",
+              "displayName": "email_sprawdzony",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "59781736-8818-4df3-8f1a-15a435e508f0",
+      "name": "Oznacz adres jako sprawdzony",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1568,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{ $json.id }}"
+            },
+            {
+              "keyName": "status",
+              "keyValue": "gotowa"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "zly_mail",
+            "email_sprawdzony": "zly",
+            "powod": "={{ $json.powod }}"
+          },
+          "schema": [
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email_sprawdzony",
+              "displayName": "email_sprawdzony",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "powod",
+              "displayName": "powod",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "cfb33a8d-cc33-49b3-b6e4-9a954f41f150",
+      "name": "Wycofaj zły adres z wysyłki",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1568,
+        192
+      ]
+    }
+  ],
+  "connections": {
+    "Gotowe maile do sprawdzenia": {
+      "main": [
+        [
+          {
+            "node": "Wybierz adresy do sprawdzenia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wybierz adresy do sprawdzenia": {
+      "main": [
+        [
+          {
+            "node": "DNS: serwer poczty (MX)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DNS: serwer poczty (MX)": {
+      "main": [
+        [
+          {
+            "node": "DNS: adres domeny (A)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DNS: adres domeny (A)": {
+      "main": [
+        [
+          {
+            "node": "Oceń adresy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Oceń adresy": {
+      "main": [
+        [
+          {
+            "node": "Adres istnieje?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Adres istnieje?": {
+      "main": [
+        [
+          {
+            "node": "Oznacz adres jako sprawdzony",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wycofaj zły adres z wysyłki",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5:30 i co godzinę 6–14 (pn–pt)": {
+      "main": [
+        [
+          {
+            "node": "Gotowe maile do sprawdzenia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Warsaw"
+  },
+  "pinData": {}
+}

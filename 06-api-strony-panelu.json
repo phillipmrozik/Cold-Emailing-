@@ -1,0 +1,2176 @@
+{
+  "name": "Cold Mail AI — API strony panelu",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "cold-mail-api/stan",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*",
+          "onlyRunIf": "={{ $json.query.klucz === 'TWOJ_KLUCZ_PANELU' }}"
+        }
+      },
+      "id": "daa70e7b-104f-4134-a097-993b4697cde3",
+      "name": "API: stan systemu",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "90ec0e04-1593-4f83-b772-a51e82ef1941"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_kampanie",
+          "cachedResultName": "cm_kampanie"
+        },
+        "returnAll": true
+      },
+      "id": "c300172f-60e1-4713-bdc7-8a398311b18d",
+      "name": "API: kampanie",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        0
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "returnAll": true
+      },
+      "id": "ed21e490-0223-43db-a5e8-d3e4b1e35661",
+      "name": "API: firmy",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        0
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_wysylki",
+          "cachedResultName": "cm_wysylki"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "data",
+              "condition": "gte",
+              "keyValue": "={{ $today.toISO() }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "id": "e9fb72e5-cd0c-449c-94b0-e90dc1ae3d96",
+      "name": "API: dzisiejsze wysyłki",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        0
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_ustawienia",
+          "cachedResultName": "cm_ustawienia"
+        },
+        "returnAll": true
+      },
+      "id": "1e065afb-e1f8-47a2-9bbe-a5cd7240c11f",
+      "name": "API: ustawienia",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        0
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = function (n) { return $(n).all().map(function (i) { return i.json; }).filter(function (r) { return r && r.id; }); };\nconst kampanie = rows('API: kampanie');\nconst firmy = rows('API: firmy');\nconst wysylki = rows('API: dzisiejsze wysyłki');\nconst ust = {};\nrows('API: ustawienia').forEach(function (r) { ust[r.klucz] = r.wartosc; });\nconst policz = function (lista, pole) { const o = {}; lista.forEach(function (x) { const k = x[pole] || 'brak'; o[k] = (o[k] || 0) + 1; }); return o; };\nconst teraz = DateTime.now().setZone('Europe/Warsaw');\nconst dzisISO = teraz.toFormat('yyyy-MM-dd');\nconst statusyAll = policz(firmy, 'status');\nconst limitDomyslny = parseInt(ust.limit_dzienny || '30', 10);\nconst SKUTECZNOSC_RESEARCHU = 0.6;\nconst dzialajace = function (k) { return k.status === 'aktywna' || k.status === 'wyczerpana'; };\nconst limit = kampanie.filter(dzialajace).reduce(function (sum, k) { return sum + (k.limit_dzienny || limitDomyslny); }, 0);\nconst dniRobocze = function (od, ile) { const wynik = []; let d = od.startOf('day'); while (wynik.length < ile) { if (d.weekday <= 5) wynik.push(d); d = d.plus({ days: 1 }); } return wynik; };\nconst pierwszyDzien = teraz.hour >= 15 || teraz.weekday > 5 ? teraz.plus({ days: 1 }) : teraz;\nconst kalendarz = dniRobocze(pierwszyDzien, 10);\nconst opisy = kampanie.slice().sort(function (a, b) { return String(b.data_start).localeCompare(String(a.data_start)); }).map(function (k) {\n  const f = firmy.filter(function (x) { return x.kampania_id === k.kampania_id; });\n  const s = policz(f, 'status');\n  const lim = parseInt(k.limit_dzienny, 10) || limitDomyslny;\n  let warianty = [];\n  try { warianty = JSON.parse(k.warianty || '[]'); } catch (e) { warianty = []; }\n  let szcz = {};\n  try { szcz = JSON.parse(k.ocena_szczegoly || '{}'); } catch (e) { szcz = {}; }\n  const szuka = k.status === 'aktywna' && ((k.wariant_idx || 0) < warianty.length || !k.osm_pobrane);\n  const gotowe = s.gotowa || 0;\n  const doSprawdzenia = (s.nowa || 0) + (s.w_researchu || 0) + (s.sprawdz_pozniej || 0);\n  const pierwsze = f.filter(function (x) { return (x.etap || 0) >= 1; }).length;\n  const follow = f.reduce(function (sum, x) { return sum + Math.max(0, Math.min(2, (x.etap || 0) - 1)); }, 0);\n  const odp = (s.zainteresowany || 0) + (s.nie_teraz || 0) + (s.odmowa || 0);\n  const koniec = k.data_koniec ? DateTime.fromISO(String(k.data_koniec)).setZone('Europe/Warsaw') : null;\n  const start = k.data_start ? DateTime.fromISO(String(k.data_start)).setZone('Europe/Warsaw') : null;\n  return {\n    id: k.kampania_id, branza: k.branza, miasto: k.miasto, status: k.status, limit: lim, dni: k.dni || 0,\n    start: start ? start.toISODate() : null, koniec: koniec ? koniec.toISODate() : null,\n    dni_do_konca: koniec ? Math.max(0, Math.ceil(koniec.diff(teraz, 'days').days)) : 0,\n    dzien: start ? Math.min(k.dni || 0, Math.max(1, Math.ceil(teraz.diff(start, 'days').days))) : 0,\n    werdykt: k.werdykt, ocena: k.ocena_ai, uzasadnienie: k.uzasadnienie || '',\n    plusy: (szcz.powody_za || []).slice(0, 5), minusy: (szcz.powody_przeciw || []).slice(0, 5),\n    rynek_firm: szcz.szacunek_firm || null, rynek_z_mailem: szcz.szacunek_z_mailem || null,\n    znalezione: f.length, gotowe: gotowe, do_sprawdzenia: doSprawdzenia, szuka: szuka,\n    wyslane: pierwsze, follow: follow, odpowiedzi: odp, zainteresowani: s.zainteresowany || 0,\n    nie_teraz: s.nie_teraz || 0, odmowy: s.odmowa || 0, odrzucone: s.odrzucona || 0, zle_maile: s.zly_mail || 0,\n    _pula: gotowe + Math.round(doSprawdzenia * SKUTECZNOSC_RESEARCHU), _koniecDt: koniec\n  };\n});\nconst plan = kalendarz.map(function (d) { return { d: d, nowe: 0, follow: 0, uwagi: [] }; });\nconst indeks = {};\nplan.forEach(function (p, i) { indeks[p.d.toFormat('yyyy-MM-dd')] = i; });\nfirmy.forEach(function (x) {\n  if (x.status !== 'wyslana' || !x.data_nastepnego) return;\n  let klucz = DateTime.fromISO(String(x.data_nastepnego)).setZone('Europe/Warsaw').toFormat('yyyy-MM-dd');\n  if (klucz < plan[0].d.toFormat('yyyy-MM-dd')) klucz = plan[0].d.toFormat('yyyy-MM-dd');\n  if (indeks[klucz] !== undefined) plan[indeks[klucz]].follow += 1;\n});\nopisy.forEach(function (o) {\n  if (!dzialajace(o)) return;\n  let pula = o._pula;\n  plan.forEach(function (p, i) {\n    if (o._koniecDt && p.d.startOf('day') > o._koniecDt.startOf('day')) return;\n    const juz = p.d.toFormat('yyyy-MM-dd') === dzisISO ? wysylki.filter(function (w) { return w.typ === 'pierwszy' && w.kampania_id === o.id && w.status !== 'odbity'; }).length : 0;\n    const ile = o.szuka ? Math.max(0, o.limit - juz) : Math.max(0, Math.min(o.limit - juz, pula));\n    pula -= ile;\n    p.nowe += ile;\n    if (ile > 0) {\n      if (i + 3 < plan.length) plan[i + 3].follow += Math.round(ile * 0.85);\n      if (i + 7 < plan.length) plan[i + 7].follow += Math.round(ile * 0.8);\n    }\n    if (!o.szuka && pula <= 0 && !o.koniec_firm) { o.koniec_firm = p.d.toISODate(); p.uwagi.push('kończą się firmy: ' + o.branza + ' · ' + o.miasto); }\n  });\n  if (o._koniecDt && indeks[o._koniecDt.toFormat('yyyy-MM-dd')] !== undefined) plan[indeks[o._koniecDt.toFormat('yyyy-MM-dd')]].uwagi.push('ostatni dzień: ' + o.branza + ' · ' + o.miasto);\n});\nconst ostrzezenia = [];\nopisy.forEach(function (o) {\n  if (!dzialajace(o)) return;\n  if (o.koniec_firm) ostrzezenia.push({ typ: 'firmy', tekst: o.branza + ' · ' + o.miasto + ': firmy skończą się ok. ' + DateTime.fromISO(o.koniec_firm).toFormat('dd.MM') + '. Przygotuj nową kampanię.' });\n  else if (o.dni_do_konca <= 3) ostrzezenia.push({ typ: 'koniec', tekst: o.branza + ' · ' + o.miasto + ': kampania kończy się ' + (o._koniecDt ? o._koniecDt.toFormat('dd.MM') : '') + '. Przygotuj następną.' });\n});\nif (!kampanie.filter(dzialajace).length) ostrzezenia.push({ typ: 'brak', tekst: 'Brak aktywnych kampanii, nic nie jest wysyłane. Utwórz nową kampanię.' });\nif (ust.system_wstrzymany === 'tak') ostrzezenia.unshift({ typ: 'stop', tekst: 'Cały system jest wstrzymany. Nic nie jest szukane ani wysyłane.' });\nopisy.forEach(function (o) { delete o._pula; delete o._koniecDt; });\nreturn [{ json: {\n  ok: true,\n  czas: teraz.toISO(),\n  system: { wstrzymany: ust.system_wstrzymany === 'tak', tryb_testowy: ust.tryb_testowy !== 'nie' },\n  dzis: {\n    nowe: wysylki.filter(function (w) { return w.status !== 'odbity' && w.typ === 'pierwszy'; }).length,\n    follow: wysylki.filter(function (w) { return w.status !== 'odbity' && w.typ !== 'pierwszy'; }).length,\n    zwroty: wysylki.filter(function (w) { return w.status === 'odbity'; }).length,\n    limit: limit\n  },\n  liczniki: { gotowe: statusyAll.gotowa || 0, research: (statusyAll.nowa || 0) + (statusyAll.w_researchu || 0), zainteresowani: statusyAll.zainteresowany || 0, wyslane_lacznie: firmy.filter(function (x) { return (x.etap || 0) >= 1; }).length, odpowiedzi_lacznie: (statusyAll.zainteresowany || 0) + (statusyAll.nie_teraz || 0) + (statusyAll.odmowa || 0) },\n  ostrzezenia: ostrzezenia,\n  kampanie: opisy,\n  harmonogram: plan.map(function (p) { return { data: p.d.toISODate(), nowe: p.nowe, follow: p.follow, uwagi: p.uwagi }; })\n} }];"
+      },
+      "id": "a2dc65bd-0881-44c9-82b7-3303fc828af1",
+      "name": "Policz stan i harmonogram",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "id": "72a0eee8-f339-4eac-bafc-c6d3498b6a4c",
+      "name": "Odpowiedz: stan",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1344,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cold-mail-api/ocena",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*",
+          "onlyRunIf": "={{ $json.query.klucz === 'TWOJ_KLUCZ_PANELU' }}"
+        }
+      },
+      "id": "28e2cecf-4804-4043-9273-4062f86f926d",
+      "name": "API: zleć ocenę rynku",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        320
+      ],
+      "webhookId": "c08a67a4-7349-48bc-b8aa-32f1b388a11a"
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = $input.first().json.body || {};\nconst czysc = function (t) { return String(t || '').replace(/\\s+/g, ' ').trim().slice(0, 60); };\nconst miastoS = czysc(b.miasto);\nconst miasto = miastoS ? miastoS.charAt(0).toUpperCase() + miastoS.slice(1) : '';\nconst branza = czysc(b.branza).toLowerCase();\nlet dni = parseInt(b.dni, 10); if (!dni || dni < 1) dni = 14; if (dni > 90) dni = 90;\nlet maile = parseInt(b.maile, 10); if (!maile || maile < 1) maile = 15; if (maile > 50) maile = 50;\nconst ok = !!(miasto && branza);\nconst id = 'oc' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);\nreturn [{ json: { ok: ok, ocena_id: id, miasto: miasto, branza: branza, dni: dni, maile: maile } }];"
+      },
+      "id": "2a5e6e5d-6dae-4763-a903-bc14222d28ea",
+      "name": "Przyjmij zlecenie",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9593544d-7993-4eae-8d26-a37bd65b324d",
+      "name": "Są miasto i branża?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        448,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_oceny",
+          "cachedResultName": "cm_oceny"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ocena_id": "={{ $json.ocena_id }}",
+            "status": "trwa",
+            "miasto": "={{ $json.miasto }}",
+            "branza": "={{ $json.branza }}",
+            "dni": "={{ $json.dni }}",
+            "maile": "={{ $json.maile }}",
+            "data": "={{ $now.toISO() }}"
+          },
+          "schema": [
+            {
+              "id": "ocena_id",
+              "displayName": "ocena_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "miasto",
+              "displayName": "miasto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "branza",
+              "displayName": "branza",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "dni",
+              "displayName": "dni",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "maile",
+              "displayName": "maile",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "data",
+              "displayName": "data",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9503c99a-ba87-48f8-acb0-dc6f1c1b44e1",
+      "name": "Zapisz zlecenie oceny",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, ocena_id: $('Przyjmij zlecenie').first().json.ocena_id }) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "id": "edcbdd58-f5ee-4d23-a9ba-3ed47c90482d",
+      "name": "Odpowiedz: przyjęto",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const z = $('Przyjmij zlecenie').first().json;\nreturn [{ json: { miasto: z.miasto, branza: z.branza, dni: z.dni, maile: z.maile, zapytanie_places: { textQuery: z.branza + ' ' + z.miasto, languageCode: 'pl', regionCode: 'PL', pageSize: 20 } } }];"
+      },
+      "id": "7151a202-cd10-4b43-865d-214edcab5e2b",
+      "name": "Przygotuj wyszukiwanie",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, powod: \"Podaj miasto i branżę.\" }) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "id": "620c2b86-4266-4c33-bde4-cb58ca8b703a",
+      "name": "Odpowiedz: brak danych",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://places.googleapis.com/v1/places:searchText",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Goog-FieldMask",
+              "value": "places.id,places.displayName,places.websiteUri,places.userRatingCount,places.businessStatus,places.primaryTypeDisplayName,nextPageToken"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.zapytanie_places }}",
+        "options": {
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "body",
+                    "name": "pageToken",
+                    "value": "={{ $response.body.nextPageToken }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.nextPageToken }}",
+              "limitPagesFetched": true,
+              "maxRequests": 3,
+              "requestInterval": 1500
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "cff19c73-62cb-4a9e-a47d-7d714df6cabb",
+      "name": "Google Maps: próbka rynku",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1344,
+        224
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Google Place Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const PLATFORMY = ['booksy.','moment.pl','versum.','fresha.','znanylekarz.','panoramafirm.','pkt.pl','aleo.com','oferteo.','fixly.','facebook.com','instagram.com','wixsite.com','business.site','linktr.ee','olx.pl','google.com','infakt.pl'];\nconst odpowiedzi = $input.all().map(function (i) { return i.json; });\nconst bladApi = odpowiedzi.some(function (o) { return o.error; });\nconst mapa = {};\nodpowiedzi.forEach(function (o) { (o.places || []).forEach(function (p) { if (p.id) mapa[p.id] = p; }); });\nconst firmy = Object.values(mapa).filter(function (p) { return !p.businessStatus || p.businessStatus === 'OPERATIONAL'; });\nconst zeStrona = [];\nlet platformy = 0;\nfirmy.forEach(function (p) {\n  const url = String(p.websiteUri || '').toLowerCase();\n  if (!url) return;\n  if (PLATFORMY.some(function (d) { return url.indexOf(d) !== -1; })) { platformy++; return; }\n  zeStrona.push(p);\n});\nconst doSprawdzenia = zeStrona.slice(0, 6).map(function (p) { return { url: p.websiteUri, nazwa: (p.displayName || {}).text || '' }; });\nconst staticData = {\n  bladApi: bladApi,\n  liczbaFirm: firmy.length,\n  zeStrona: zeStrona.length,\n  profilePlatform: platformy,\n  bezStrony: firmy.length - zeStrona.length - platformy,\n  przyklady: firmy.slice(0, 12).map(function (p) { return ((p.displayName || {}).text || '') + (p.userRatingCount ? ' (' + p.userRatingCount + ' opinii)' : ''); })\n};\nif (doSprawdzenia.length === 0) return [{ json: { url: 'https://www.mrozikdigital.com', pomin: true, statystyki: staticData } }];\nreturn doSprawdzenia.map(function (d) { return { json: { url: d.url, nazwa: d.nazwa, pomin: false, statystyki: staticData } }; });"
+      },
+      "id": "4ff8b698-0be8-4bbe-b7d2-958685a514b5",
+      "name": "Statystyki rynku",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+            },
+            {
+              "name": "Accept-Language",
+              "value": "pl-PL,pl;q=0.9"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "text",
+              "outputPropertyName": "html"
+            }
+          },
+          "timeout": 12000
+        }
+      },
+      "id": "c3c706ca-3b18-4c20-b30b-0fc7d7fc70a8",
+      "name": "Pobierz strony z próbki",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1792,
+        224
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const proba = $('Statystyki rynku').all().map(function (i) { return i.json; });\nconst strony = $input.all().map(function (i) { return i.json; });\nconst stat = proba[0].statystyki;\nconst wej = $('Przygotuj wyszukiwanie').first().json;\nconst REG = /[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}/gi;\nlet sprawdzone = 0;\nlet zMailem = 0;\nproba.forEach(function (p, i) {\n  if (p.pomin) return;\n  sprawdzone++;\n  const html = String((strony[i] || {}).html || '');\n  const maile = (html.match(REG) || []).filter(function (m) { return !/\\.(png|jpe?g|gif|webp|svg)$/i.test(m) && !/(sentry|wixpress|example)/i.test(m); });\n  if (maile.length) zMailem++;\n});\nconst dane = {\n  miasto: wej.miasto,\n  branza: wej.branza,\n  dni_kampanii: wej.dni,\n  google_maps: {\n    blad_api: stat.bladApi,\n    firm_w_probce_max_60: stat.liczbaFirm,\n    z_wlasna_strona: stat.zeStrona,\n    tylko_profil_platformy: stat.profilePlatform,\n    bez_strony: stat.bezStrony,\n    przyklady: stat.przyklady\n  },\n  probka_stron: { sprawdzone: sprawdzone, ze_znalezionym_mailem_na_stronie_glownej: zMailem }\n};\nconst instrukcja = [\n  'Jesteś doświadczonym specjalistą od sprzedaży B2B i wdrożeń automatyzacji AI w polskich firmach.',\n  'Oceniasz, czy warto prowadzić kampanię cold mailingu do firm z podanej branży w podanym mieście.',\n  'Oferta: automatyzacje AI dla firm, np. automatyczne odpowiadanie klientom, przypomnienia o wizytach i terminach, obsługa zapytań i wycen, porządkowanie dokumentów i faktur, obsługa i pozyskiwanie klientów. Nie oferujemy stron internetowych.',\n  'Oceniaj realnie, bez sztucznego optymizmu. Weź pod uwagę: powtarzalne procesy w tej branży, to czy decyzję podejmuje właściciel, budżet, liczbę firm w mieście, dostępność maili (dane z próbki) oraz nasycenie rynku.',\n  'Gdy próbka z Google Maps jest pusta albo jest błąd API, zaznacz to w podsumowaniu i oceniaj ostrożnie.',\n  'Pisz bardzo prostym językiem, krótko, po polsku, formą bezosobową.',\n  'warianty_wyszukiwania: 6-10 różnych fraz do wyszukiwarki Google Maps (bez nazwy miasta), które znajdą firmy z tej branży, także pokrewne nazwy.',\n  'osm_tagi: 1-4 tagi OpenStreetMap w formacie klucz=wartość, które opisują tę branżę (np. office=accountant, shop=hairdresser). Tylko prawdziwe, istniejące tagi OSM.',\n  'bolaczki_branzy: 5-8 typowych, realnych problemów firm z tej branży, które da się rozwiązać automatyzacją AI. Każdy z prostym rozwiązaniem i konkretną korzyścią (czas, klienci, pieniądze). Nigdy nie proponuj strony internetowej.',\n  'alternatywy: gdy ocena jest niższa niż 7, podaj 3 branże, które w tym mieście mogą dać lepsze wyniki. W przeciwnym razie pusta lista.',\n  'szacunek_firm i szacunek_z_mailem: realny szacunek dla całego miasta (liczby całkowite).'\n].join('\\n');\nconst schema = {\n  type: 'object', additionalProperties: false,\n  required: ['werdykt', 'ocena', 'podsumowanie', 'powody_za', 'powody_przeciw', 'szacunek_firm', 'szacunek_z_mailem', 'alternatywy', 'warianty_wyszukiwania', 'osm_tagi', 'bolaczki_branzy'],\n  properties: {\n    werdykt: { type: 'string', enum: ['WARTO', 'RACZEJ WARTO', 'NIE WARTO'] },\n    ocena: { type: 'integer' },\n    podsumowanie: { type: 'string' },\n    powody_za: { type: 'array', items: { type: 'string' } },\n    powody_przeciw: { type: 'array', items: { type: 'string' } },\n    szacunek_firm: { type: 'integer' },\n    szacunek_z_mailem: { type: 'integer' },\n    alternatywy: { type: 'array', items: { type: 'string' } },\n    warianty_wyszukiwania: { type: 'array', items: { type: 'string' } },\n    osm_tagi: { type: 'array', items: { type: 'string' } },\n    bolaczki_branzy: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['bolaczka', 'rozwiazanie', 'korzysc'], properties: { bolaczka: { type: 'string' }, rozwiazanie: { type: 'string' }, korzysc: { type: 'string' } } } }\n  }\n};\nreturn [{ json: {\n  dane: dane,\n  zapytanie_ai: {\n    model: 'gpt-5.5',\n    reasoning: { effort: 'medium' },\n    input: [ { role: 'system', content: instrukcja }, { role: 'user', content: JSON.stringify(dane) } ],\n    text: { format: { type: 'json_schema', name: 'ocena_branzy', strict: true, schema: schema } }\n  }\n} }];"
+      },
+      "id": "85c4aa2b-7573-4acb-9c94-c59c0b7d60a3",
+      "name": "Podsumuj próbkę i zapytaj AI",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.zapytanie_ai }}",
+        "options": {
+          "timeout": 240000
+        }
+      },
+      "id": "c1e9f079-504e-45dd-95a6-d552fb82f341",
+      "name": "AI: ocena branży",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2240,
+        224
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const odp = $input.first().json;\nconst z = $('Przyjmij zlecenie').first().json;\nlet tekst = '';\n(odp.output || []).forEach(function (o) { if (o.type === 'message') (o.content || []).forEach(function (c) { if (c.type === 'output_text') tekst = c.text; }); });\nif (!tekst) return [{ json: { ocena_id: z.ocena_id, status: 'blad', wynik: JSON.stringify({ powod: 'AI nie zwróciło oceny, spróbuj ponownie.' }) } }];\nconst ocena = JSON.parse(tekst);\nocena.ocena = Math.max(1, Math.min(10, parseInt(ocena.ocena, 10) || 1));\nocena.osm_tagi = (ocena.osm_tagi || []).filter(function (t) { return /^[a-z_:]+=[a-z0-9_;:-]+$/i.test(String(t).trim()); }).map(function (t) { return String(t).trim(); }).slice(0, 4);\nocena.warianty_wyszukiwania = (ocena.warianty_wyszukiwania || []).map(function (w) { return String(w).trim(); }).filter(Boolean).slice(0, 10);\nif (ocena.warianty_wyszukiwania.indexOf(z.branza) === -1) ocena.warianty_wyszukiwania.unshift(z.branza);\nconst dane = $('Podsumuj próbkę i zapytaj AI').first().json.dane;\nocena.rynek = { w_probce: dane.google_maps.firm_w_probce_max_60, ze_strona: dane.google_maps.z_wlasna_strona, blad_google: !!dane.google_maps.blad_api };\nreturn [{ json: { ocena_id: z.ocena_id, status: 'gotowa', wynik: JSON.stringify(ocena) } }];"
+      },
+      "id": "9c07f8d2-680a-413d-805f-aef3bc1f64a0",
+      "name": "Odczytaj ocenę AI",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2464,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_oceny",
+          "cachedResultName": "cm_oceny"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "ocena_id",
+              "keyValue": "={{ $json.ocena_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "={{ $json.status }}",
+            "wynik": "={{ $json.wynik }}"
+          },
+          "schema": [
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "wynik",
+              "displayName": "wynik",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d1768e02-6328-4161-b6a0-bf8cec1fcf9f",
+      "name": "Zapisz wynik oceny",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2688,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "path": "cold-mail-api/wynik",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*",
+          "onlyRunIf": "={{ $json.query.klucz === 'TWOJ_KLUCZ_PANELU' }}"
+        }
+      },
+      "id": "1cc33559-519d-427a-934a-41425901a32f",
+      "name": "API: wynik oceny",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        640
+      ],
+      "webhookId": "045eab00-2d2b-46b6-9b55-c64d5c0c210a"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_oceny",
+          "cachedResultName": "cm_oceny"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "ocena_id",
+              "keyValue": "={{ $json.query.id || '-' }}"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "id": "ff71d840-3667-4512-a95e-ecca5a3fa307",
+      "name": "Pobierz ocenę",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        640
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json || {};\nif (!r.id) return [{ json: { ok: false, status: 'brak', powod: 'Nie ma takiej oceny.' } }];\nlet wynik = null;\ntry { wynik = r.wynik ? JSON.parse(r.wynik) : null; } catch (e) { wynik = null; }\nconst minelo = r.data ? (Date.now() - new Date(r.data).getTime()) / 1000 : 0;\nconst status = r.status === 'trwa' && minelo > 300 ? 'blad' : r.status;\nreturn [{ json: { ok: true, status: status, miasto: r.miasto, branza: r.branza, dni: r.dni, maile: r.maile, wynik: wynik, powod: status === 'blad' ? ((wynik && wynik.powod) || 'Ocena trwała za długo, spróbuj ponownie.') : '' } }];"
+      },
+      "id": "61407536-21d5-421d-8c9c-ac6adf910a94",
+      "name": "Złóż wynik oceny",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "id": "56247f4c-40f6-4808-83a9-abf36335be0f",
+      "name": "Odpowiedz: wynik oceny",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cold-mail-api/start",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*",
+          "onlyRunIf": "={{ $json.query.klucz === 'TWOJ_KLUCZ_PANELU' }}"
+        }
+      },
+      "id": "9b2e0f34-091c-44e3-b11d-d079ecf36998",
+      "name": "API: uruchom kampanię",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        960
+      ],
+      "webhookId": "187f7908-54d8-440f-a962-ec36f51a5d15"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_oceny",
+          "cachedResultName": "cm_oceny"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "ocena_id",
+              "keyValue": "={{ ($json.body || {}).ocena_id || '-' }}"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "id": "e62d5940-fe85-4658-b55c-3b5b5071dccd",
+      "name": "Pobierz ocenę do startu",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        960
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json || {};\nconst b = $('API: uruchom kampanię').first().json.body || {};\nif (!r.id || r.status !== 'gotowa') return [{ json: { ok: false, powod: r.status === 'uruchomiona' ? 'Ta kampania już wystartowała.' : 'Ocena nie jest gotowa.' } }];\nconst k = JSON.parse(r.wynik);\nlet dni = parseInt(b.dni || r.dni, 10); if (!dni || dni < 1) dni = 14; if (dni > 90) dni = 90;\nlet maile = parseInt(b.maile || r.maile, 10); if (!maile || maile < 1) maile = 15; if (maile > 50) maile = 50;\nconst teraz = $now;\nconst slug = function (t) { return String(t).toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/ł/g, 'l').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''); };\nreturn [{ json: {\n  ok: true, ocena_id: r.ocena_id,\n  kampania_id: slug(r.branza) + '-' + slug(r.miasto) + '-' + teraz.toFormat('yyyyMMddHHmm'),\n  miasto: r.miasto, branza: r.branza,\n  warianty: JSON.stringify(k.warianty_wyszukiwania || [r.branza]),\n  osm_tagi: JSON.stringify(k.osm_tagi || []),\n  bolaczki_branzy: JSON.stringify(k.bolaczki_branzy || []),\n  dni: dni, limit_dzienny: maile,\n  ocena_szczegoly: JSON.stringify({ powody_za: k.powody_za || [], powody_przeciw: k.powody_przeciw || [], szacunek_firm: k.szacunek_firm, szacunek_z_mailem: k.szacunek_z_mailem, alternatywy: k.alternatywy || [] }),\n  status: 'aktywna', ocena_ai: k.ocena, werdykt: k.werdykt, uzasadnienie: k.podsumowanie,\n  data_start: teraz.toISO(), data_koniec: teraz.plus({ days: dni }).toISO(),\n  wariant_idx: 0, osm_pobrane: false, znalezione: 0, ostatnie_szukanie: teraz.minus({ days: 1 }).toISO()\n} }];"
+      },
+      "id": "a2704aec-37aa-417a-91c7-16d66da1bd90",
+      "name": "Zbuduj kampanię",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "134df02f-cb38-41c6-9fef-330a0f1d5cb4",
+      "name": "Można uruchomić?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        672,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_kampanie",
+          "cachedResultName": "cm_kampanie"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "bolaczki_branzy": "={{ $json.bolaczki_branzy }}",
+            "branza": "={{ $json.branza }}",
+            "data_koniec": "={{ $json.data_koniec }}",
+            "data_start": "={{ $json.data_start }}",
+            "dni": "={{ $json.dni }}",
+            "kampania_id": "={{ $json.kampania_id }}",
+            "limit_dzienny": "={{ $json.limit_dzienny }}",
+            "miasto": "={{ $json.miasto }}",
+            "ocena_ai": "={{ $json.ocena_ai }}",
+            "ocena_szczegoly": "={{ $json.ocena_szczegoly }}",
+            "osm_pobrane": "={{ $json.osm_pobrane }}",
+            "osm_tagi": "={{ $json.osm_tagi }}",
+            "ostatnie_szukanie": "={{ $json.ostatnie_szukanie }}",
+            "status": "={{ $json.status }}",
+            "uzasadnienie": "={{ $json.uzasadnienie }}",
+            "wariant_idx": "={{ $json.wariant_idx }}",
+            "warianty": "={{ $json.warianty }}",
+            "werdykt": "={{ $json.werdykt }}",
+            "znalezione": "={{ $json.znalezione }}"
+          },
+          "schema": [
+            {
+              "id": "kampania_id",
+              "displayName": "kampania_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "miasto",
+              "displayName": "miasto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "branza",
+              "displayName": "branza",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "warianty",
+              "displayName": "warianty",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "osm_tagi",
+              "displayName": "osm_tagi",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "bolaczki_branzy",
+              "displayName": "bolaczki_branzy",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "dni",
+              "displayName": "dni",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "limit_dzienny",
+              "displayName": "limit_dzienny",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ocena_szczegoly",
+              "displayName": "ocena_szczegoly",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ocena_ai",
+              "displayName": "ocena_ai",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "werdykt",
+              "displayName": "werdykt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "uzasadnienie",
+              "displayName": "uzasadnienie",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "data_start",
+              "displayName": "data_start",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "data_koniec",
+              "displayName": "data_koniec",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "wariant_idx",
+              "displayName": "wariant_idx",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "osm_pobrane",
+              "displayName": "osm_pobrane",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "znalezione",
+              "displayName": "znalezione",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ostatnie_szukanie",
+              "displayName": "ostatnie_szukanie",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "dd8a93a2-0412-4d4e-8ec3-defe155051c0",
+      "name": "Zapisz kampanię",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        864
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_oceny",
+          "cachedResultName": "cm_oceny"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "ocena_id",
+              "keyValue": "={{ $('Zbuduj kampanię').first().json.ocena_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "uruchomiona"
+          },
+          "schema": [
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3996da02-f163-4cb9-aa3b-140977408dbc",
+      "name": "Oznacz ocenę jako uruchomioną",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1120,
+        864
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "chatId": "TWOJ_TELEGRAM_CHAT_ID",
+        "text": "={{ (function () { const z = $('Zbuduj kampanię').first().json; const e = function (t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }; const d = JSON.parse(z.ocena_szczegoly || '{}'); const l = function (a) { return (a || []).slice(0, 3).map(function (x) { return '• ' + e(x); }).join('\\n'); }; return '🚀 <b>Nowa kampania: ' + e(z.branza) + ' · ' + e(z.miasto) + '</b>\\nOcena AI: <b>' + e(z.werdykt) + '</b> (' + z.ocena_ai + '/10) · rynek: ok. ' + (d.szacunek_firm || '?') + ' firm, z mailem ok. ' + (d.szacunek_z_mailem || '?') + '\\n\\n' + e(z.uzasadnienie) + '\\n\\n<b>Dlaczego warto:</b>\\n' + l(d.powody_za) + '\\n\\n<b>Na co uważać:</b>\\n' + l(d.powody_przeciw) + '\\n\\n<b>Plan:</b> ' + z.dni + ' dni, ' + z.limit_dzienny + ' nowych maili dziennie.'; })() }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "25f6cab5-f1c6-445a-a78d-3f404511b350",
+      "name": "Telegram: kampania wystartowała",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1344,
+        864
+      ],
+      "webhookId": "42f34b2e-8790-440c-9716-0786a6bae1b0",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Pain Radar Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, kampania_id: $('Zbuduj kampanię').first().json.kampania_id }) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "id": "c7683175-65a7-4c3b-a8c0-640e45420f54",
+      "name": "Odpowiedz: kampania ruszyła",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1568,
+        864
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, powod: $json.powod }) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "id": "411b6cab-ff17-4805-9244-a8dd0179debf",
+      "name": "Odpowiedz: nie można uruchomić",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        1056
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cold-mail-api/sterowanie",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*",
+          "onlyRunIf": "={{ $json.query.klucz === 'TWOJ_KLUCZ_PANELU' }}"
+        }
+      },
+      "id": "8e9f6658-072b-49d0-86e9-9f4687766934",
+      "name": "API: sterowanie",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        1280
+      ],
+      "webhookId": "7db0d987-9181-4625-b2c2-2f91cf449906"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_ustawienia",
+          "cachedResultName": "cm_ustawienia"
+        },
+        "returnAll": true
+      },
+      "id": "17a3f8d9-3266-4878-b174-8c413d05cfa3",
+      "name": "Sterowanie: ustawienia",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        1280
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = $('API: sterowanie').first().json.body || {};\nconst ust = {};\n$('Sterowanie: ustawienia').all().forEach(function (i) { if (i.json && i.json.klucz) ust[i.json.klucz] = i.json.wartosc; });\nconst mapa = { wstrzymaj: 'wstrzymana', wznow: 'aktywna', zakoncz: 'zakonczona' };\nconst kampaniaId = String(b.kampania_id || '');\nconst nowyStatus = kampaniaId && mapa[b.akcja] ? mapa[b.akcja] : '';\nconst system = b.system === 'stop' ? 'tak' : (b.system === 'start' ? 'nie' : (ust.system_wstrzymany || 'nie'));\nconst test = b.tryb_testowy === 'wlacz' ? 'tak' : (b.tryb_testowy === 'wylacz' ? 'nie' : (ust.tryb_testowy || 'tak'));\nreturn [{ json: { kampania_id: nowyStatus ? kampaniaId : '__brak__', status: nowyStatus || 'bez_zmian', system_wstrzymany: system, tryb_testowy: test } }];"
+      },
+      "id": "538d07de-5a70-43c6-9fd8-2cdbefa07f03",
+      "name": "Przygotuj zmiany",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        1280
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_kampanie",
+          "cachedResultName": "cm_kampanie"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "kampania_id",
+              "keyValue": "={{ $json.kampania_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "={{ $json.status }}"
+          },
+          "schema": [
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b3dcbde8-7abb-4b2a-9659-99a05bb38710",
+      "name": "Zmień status kampanii",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        1280
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_ustawienia",
+          "cachedResultName": "cm_ustawienia"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "klucz",
+              "keyValue": "system_wstrzymany"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "wartosc": "={{ $('Przygotuj zmiany').first().json.system_wstrzymany }}"
+          },
+          "schema": [
+            {
+              "id": "wartosc",
+              "displayName": "wartosc",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6b002e27-321b-4c25-9049-124b59527cf4",
+      "name": "Zapisz stan systemu",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        1280
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_ustawienia",
+          "cachedResultName": "cm_ustawienia"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "klucz",
+              "keyValue": "tryb_testowy"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "wartosc": "={{ $('Przygotuj zmiany').first().json.tryb_testowy }}"
+          },
+          "schema": [
+            {
+              "id": "wartosc",
+              "displayName": "wartosc",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "424c390e-4784-4b8f-b7c1-17ca8f363c77",
+      "name": "Zapisz tryb testowy",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1120,
+        1280
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true }) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "id": "cf364d31-10d9-4a64-b4f2-01ed3262b260",
+      "name": "Odpowiedz: zapisano",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1344,
+        1280
+      ]
+    },
+    {
+      "parameters": {
+        "path": "cold-mail-api/kolejka",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*",
+          "onlyRunIf": "={{ $json.query.klucz === 'TWOJ_KLUCZ_PANELU' }}"
+        }
+      },
+      "id": "b6124d1c-d18a-4d08-b64b-d7f9cf1273a9",
+      "name": "API: kolejka maili",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        1600
+      ],
+      "webhookId": "1dec1824-9e58-480b-8421-707cfc12f624"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "cm_kampanie",
+          "mode": "id",
+          "value": "ID_TABELI_cm_kampanie"
+        },
+        "returnAll": true
+      },
+      "id": "08b5ee5e-ace9-4de4-93de-a41c675dd17b",
+      "name": "Kolejka: kampanie",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        1600
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "cm_firmy",
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "status",
+              "keyValue": "gotowa"
+            },
+            {
+              "keyName": "email_sprawdzony",
+              "keyValue": "ok"
+            }
+          ]
+        },
+        "returnAll": true,
+        "orderBy": true,
+        "orderByColumn": "priorytet"
+      },
+      "id": "d7b97b35-69b7-4e6e-ae2f-8167cee7968a",
+      "name": "Kolejka: gotowe maile",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        1600
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "cm_firmy",
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "status",
+              "keyValue": "wyslana"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "id": "ce3d198b-dcf0-49fd-8bc6-3a38a1b195d7",
+      "name": "Kolejka: follow-upy",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        656,
+        1600
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "cm_wysylki",
+          "mode": "id",
+          "value": "ID_TABELI_cm_wysylki"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "data",
+              "condition": "gte",
+              "keyValue": "={{ $today.toISO() }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "id": "10cdf629-66ea-46b4-99d0-8d5d1652eca8",
+      "name": "Kolejka: dzisiejsze wysyłki",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        1600
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "cm_ustawienia",
+          "mode": "id",
+          "value": "ID_TABELI_cm_ustawienia"
+        },
+        "returnAll": true
+      },
+      "id": "c68e8fc2-d412-43be-9a66-f8238ff52972",
+      "name": "Kolejka: ustawienia",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1104,
+        1600
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = function (n) { return $(n).all().map(function (i) { return i.json; }).filter(function (r) { return r && r.id; }); };\nconst ust = {};\nrows('Kolejka: ustawienia').forEach(function (r) { ust[r.klucz] = r.wartosc; });\nconst limitDomyslny = parseInt(ust.limit_dzienny || '30', 10);\nconst teraz = DateTime.now().setZone('Europe/Warsaw');\nconst dzisiaj = teraz.weekday <= 5 && teraz.hour < 15;\nlet dzien = teraz.startOf('day');\nif (!dzisiaj) { dzien = dzien.plus({ days: 1 }); while (dzien.weekday > 5) dzien = dzien.plus({ days: 1 }); }\nconst wysylki = rows('Kolejka: dzisiejsze wysyłki').filter(function (w) { return w.typ === 'pierwszy' && w.status !== 'odbity'; });\nconst gotowe = rows('Kolejka: gotowe maile').filter(function (f) { return f.email && f.tresc; });\nconst kampanie = rows('Kolejka: kampanie').filter(function (k) { return k.status === 'aktywna' || k.status === 'wyczerpana'; });\nconst kampOut = kampanie.map(function (k) {\n  const lim = parseInt(k.limit_dzienny, 10) || limitDomyslny;\n  const juz = dzisiaj ? wysylki.filter(function (w) { return w.kampania_id === k.kampania_id; }).length : 0;\n  const miejsca = Math.max(0, lim - juz);\n  const pula = gotowe.filter(function (f) { return f.kampania_id === k.kampania_id; });\n  return {\n    id: k.kampania_id, branza: k.branza, miasto: k.miasto, limit: lim, wyslane: juz, miejsca: miejsca,\n    rezerwa: Math.max(0, pula.length - miejsca),\n    maile: pula.slice(0, miejsca).map(function (f) {\n      return { id: f.id, nazwa: f.nazwa || '', email: f.email, temat: f.temat || 'Propozycja współpracy', tresc: String(f.tresc || '').replace(/ [—–] /g, ', '), strona: f.strona || '', miasto: f.miasto || '', ocena: f.ocena_kontrolera || null, pomysl: f.pomysl_glowny || '' };\n    })\n  };\n});\nconst koniecDnia = dzien.endOf('day');\nconst fu = rows('Kolejka: follow-upy').filter(function (f) {\n  if (!f.data_nastepnego || !f.email) return false;\n  return DateTime.fromISO(String(f.data_nastepnego)).setZone('Europe/Warsaw') <= koniecDnia;\n}).map(function (f) { return { id: f.id, nazwa: f.nazwa || '', email: f.email, etap: f.etap, kampania: f.kampania_id }; });\nreturn [{ json: {\n  ok: true,\n  dzisiaj: dzisiaj,\n  data: dzien.toISODate(),\n  wstrzymany: ust.system_wstrzymany === 'tak',\n  test: ust.tryb_testowy !== 'nie',\n  kampanie: kampOut,\n  followupy: fu\n} }];\n"
+      },
+      "id": "2615da6c-ddb2-49c7-bf0e-54279b42018c",
+      "name": "Ułóż kolejkę dnia",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "id": "269819b0-ec06-48c5-b9df-fd206c1f9a16",
+      "name": "Odpowiedz: kolejka",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1536,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cold-mail-api/odrzuc",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*",
+          "onlyRunIf": "={{ $json.query.klucz === 'TWOJ_KLUCZ_PANELU' }}"
+        }
+      },
+      "id": "bb98939c-2ff1-421a-b88e-c682a2bf730f",
+      "name": "API: odrzuć mail",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        1824
+      ],
+      "webhookId": "fdae3893-7106-4aaf-ba04-44b787b3199f"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "cm_firmy",
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{ parseInt(($json.body || {}).id, 10) || -1 }}"
+            },
+            {
+              "keyName": "status",
+              "keyValue": "gotowa"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "status",
+              "id": "status",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "powod",
+              "id": "powod",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "powod": "odrzucone ręcznie w panelu",
+            "status": "odrzucona"
+          }
+        },
+        "options": {}
+      },
+      "id": "ebce17e7-997b-4696-8810-b15c204dd6ff",
+      "name": "Odrzuć firmę z kolejki",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        1824
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: $('Odrzuć firmę z kolejki').all().some(function (i) { return i.json && i.json.id; }) }) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "id": "cc8d2127-f8e5-4f6f-8a5b-1f97eab4842e",
+      "name": "Odpowiedz: odrzucono",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        1824
+      ]
+    }
+  ],
+  "connections": {
+    "API: stan systemu": {
+      "main": [
+        [
+          {
+            "node": "API: kampanie",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API: kampanie": {
+      "main": [
+        [
+          {
+            "node": "API: firmy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API: firmy": {
+      "main": [
+        [
+          {
+            "node": "API: dzisiejsze wysyłki",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API: dzisiejsze wysyłki": {
+      "main": [
+        [
+          {
+            "node": "API: ustawienia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API: ustawienia": {
+      "main": [
+        [
+          {
+            "node": "Policz stan i harmonogram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Policz stan i harmonogram": {
+      "main": [
+        [
+          {
+            "node": "Odpowiedz: stan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API: zleć ocenę rynku": {
+      "main": [
+        [
+          {
+            "node": "Przyjmij zlecenie",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Przyjmij zlecenie": {
+      "main": [
+        [
+          {
+            "node": "Są miasto i branża?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Są miasto i branża?": {
+      "main": [
+        [
+          {
+            "node": "Zapisz zlecenie oceny",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Odpowiedz: brak danych",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zapisz zlecenie oceny": {
+      "main": [
+        [
+          {
+            "node": "Odpowiedz: przyjęto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Odpowiedz: przyjęto": {
+      "main": [
+        [
+          {
+            "node": "Przygotuj wyszukiwanie",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Przygotuj wyszukiwanie": {
+      "main": [
+        [
+          {
+            "node": "Google Maps: próbka rynku",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Maps: próbka rynku": {
+      "main": [
+        [
+          {
+            "node": "Statystyki rynku",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Statystyki rynku": {
+      "main": [
+        [
+          {
+            "node": "Pobierz strony z próbki",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pobierz strony z próbki": {
+      "main": [
+        [
+          {
+            "node": "Podsumuj próbkę i zapytaj AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Podsumuj próbkę i zapytaj AI": {
+      "main": [
+        [
+          {
+            "node": "AI: ocena branży",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: ocena branży": {
+      "main": [
+        [
+          {
+            "node": "Odczytaj ocenę AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Odczytaj ocenę AI": {
+      "main": [
+        [
+          {
+            "node": "Zapisz wynik oceny",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API: wynik oceny": {
+      "main": [
+        [
+          {
+            "node": "Pobierz ocenę",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pobierz ocenę": {
+      "main": [
+        [
+          {
+            "node": "Złóż wynik oceny",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Złóż wynik oceny": {
+      "main": [
+        [
+          {
+            "node": "Odpowiedz: wynik oceny",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API: uruchom kampanię": {
+      "main": [
+        [
+          {
+            "node": "Pobierz ocenę do startu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pobierz ocenę do startu": {
+      "main": [
+        [
+          {
+            "node": "Zbuduj kampanię",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zbuduj kampanię": {
+      "main": [
+        [
+          {
+            "node": "Można uruchomić?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Można uruchomić?": {
+      "main": [
+        [
+          {
+            "node": "Zapisz kampanię",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Odpowiedz: nie można uruchomić",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zapisz kampanię": {
+      "main": [
+        [
+          {
+            "node": "Oznacz ocenę jako uruchomioną",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Oznacz ocenę jako uruchomioną": {
+      "main": [
+        [
+          {
+            "node": "Telegram: kampania wystartowała",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram: kampania wystartowała": {
+      "main": [
+        [
+          {
+            "node": "Odpowiedz: kampania ruszyła",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API: sterowanie": {
+      "main": [
+        [
+          {
+            "node": "Sterowanie: ustawienia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sterowanie: ustawienia": {
+      "main": [
+        [
+          {
+            "node": "Przygotuj zmiany",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Przygotuj zmiany": {
+      "main": [
+        [
+          {
+            "node": "Zmień status kampanii",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zmień status kampanii": {
+      "main": [
+        [
+          {
+            "node": "Zapisz stan systemu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zapisz stan systemu": {
+      "main": [
+        [
+          {
+            "node": "Zapisz tryb testowy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zapisz tryb testowy": {
+      "main": [
+        [
+          {
+            "node": "Odpowiedz: zapisano",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API: kolejka maili": {
+      "main": [
+        [
+          {
+            "node": "Kolejka: kampanie",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kolejka: kampanie": {
+      "main": [
+        [
+          {
+            "node": "Kolejka: gotowe maile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kolejka: gotowe maile": {
+      "main": [
+        [
+          {
+            "node": "Kolejka: follow-upy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kolejka: follow-upy": {
+      "main": [
+        [
+          {
+            "node": "Kolejka: dzisiejsze wysyłki",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kolejka: dzisiejsze wysyłki": {
+      "main": [
+        [
+          {
+            "node": "Kolejka: ustawienia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kolejka: ustawienia": {
+      "main": [
+        [
+          {
+            "node": "Ułóż kolejkę dnia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ułóż kolejkę dnia": {
+      "main": [
+        [
+          {
+            "node": "Odpowiedz: kolejka",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API: odrzuć mail": {
+      "main": [
+        [
+          {
+            "node": "Odrzuć firmę z kolejki",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Odrzuć firmę z kolejki": {
+      "main": [
+        [
+          {
+            "node": "Odpowiedz: odrzucono",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Warsaw"
+  },
+  "pinData": {}
+}

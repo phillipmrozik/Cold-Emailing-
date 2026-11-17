@@ -1,0 +1,1373 @@
+{
+  "name": "Cold Mail AI — Wysyłka i follow-upy",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 */30 6-14 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "05c29ff3-27e9-429f-8f1b-7f35db6b1198",
+      "name": "Co 30 minut (pn–pt 6:00–15:00)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_ustawienia",
+          "cachedResultName": "cm_ustawienia"
+        },
+        "returnAll": true
+      },
+      "id": "b926b445-e48e-4cc2-a7ba-c7226da03c1c",
+      "name": "Pobierz ustawienia",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        192
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {},
+      "id": "fd26fa51-d113-4d00-b168-fec3897d9400",
+      "name": "Wyślij teraz (ręcznie)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://date.nager.at/api/v3/PublicHolidays/' + $now.year + '/PL' }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "29e8437b-e1f0-4eb4-94a5-83d5df3895d7",
+      "name": "Święta w Polsce",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        448,
+        192
+      ],
+      "executeOnce": true,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://date.nager.at/api/v3/LongWeekend/' + $now.year + '/PL' }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "d84f06b0-4e94-48df-a00e-7003ea405e71",
+      "name": "Długie weekendy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        672,
+        192
+      ],
+      "executeOnce": true,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_wysylki",
+          "cachedResultName": "cm_wysylki"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "data",
+              "condition": "gte",
+              "keyValue": "={{ $today.toISO() }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "id": "0add54b6-1ef9-497e-af0f-6c34967a7c2b",
+      "name": "Dzisiejsze wysyłki",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        192
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const ust = {};\n$('Pobierz ustawienia').all().forEach(function (i) { if (i.json && i.json.klucz) ust[i.json.klucz] = i.json.wartosc; });\nif (ust.system_wstrzymany === 'tak') return [];\nconst teraz = $now.setZone('Europe/Warsaw');\nconst dzis = teraz.toFormat('yyyy-MM-dd');\nconst reczne = $execution.mode !== 'production';\nconst swieta = $('Święta w Polsce').all().map(function (i) { return i.json; }).filter(function (h) { return h && h.date && (!h.counties || !h.counties.length); }).map(function (h) { return h.date; });\nconst dlugie = $('Długie weekendy').all().map(function (i) { return i.json; }).filter(function (w) { return w && w.startDate; });\nif (!reczne) {\n  if (teraz.weekday > 5) return [];\n  if (swieta.indexOf(dzis) !== -1) return [];\n  if (dlugie.some(function (w) { return dzis >= w.startDate && dzis <= w.endDate; })) return [];\n  if (teraz.hour < 6 || teraz.hour >= 15) return [];\n}\nconst wysylki = $('Dzisiejsze wysyłki').all().map(function (i) { return i.json; }).filter(function (w) { return w && w.id && w.status !== 'odbity'; });\nconst kampanie = $('Pobierz kampanie').all().map(function (i) { return i.json; }).filter(function (k) { return k && k.id; });\nconst limitDomyslny = parseInt(ust.limit_dzienny || '30', 10);\nconst SUFIT_DZIENNY = 100;\nconst pierwsze = wysylki.filter(function (w) { return w.typ === 'pierwszy'; });\nconst fuDzis = wysylki.length - pierwsze.length;\nconst minuty = (teraz.hour - 6) * 60 + teraz.minute;\nconst czesc = Math.min(1, (minuty + 10) / 540);\nconst kampLimity = {};\nkampanie.forEach(function (k) {\n  if (k.status === 'wstrzymana') return;\n  const lim = parseInt(k.limit_dzienny, 10) || limitDomyslny;\n  const wys = pierwsze.filter(function (w) { return w.kampania_id === k.kampania_id; }).length;\n  kampLimity[k.kampania_id] = { limit: lim, wyslane: wys, moze: wys < lim && (reczne || wys < Math.ceil(lim * czesc)) };\n});\nconst mozePierwszy = pierwsze.length < SUFIT_DZIENNY && Object.keys(kampLimity).some(function (id) { return kampLimity[id].moze; });\nreturn [{ json: { pierwszeDzis: pierwsze.length, fuDzis: fuDzis, mozePierwszy: mozePierwszy, kampanie: kampLimity, test: ust.tryb_testowy !== 'nie', swieta: swieta, dzis: dzis } }];"
+      },
+      "id": "7269ceaf-61ab-44e3-aa3a-73d8448e30ab",
+      "name": "Czy wysyłamy teraz?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "status",
+              "keyValue": "wyslana"
+            },
+            {
+              "keyName": "data_nastepnego",
+              "condition": "lte",
+              "keyValue": "={{ $now.toISO() }}"
+            }
+          ]
+        },
+        "limit": 5,
+        "orderBy": true,
+        "orderByColumn": "data_nastepnego",
+        "orderByDirection": "ASC"
+      },
+      "id": "74f28d3f-cb7f-4680-9eeb-2979faf32201",
+      "name": "Follow-upy na dziś",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1344,
+        192
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "status",
+              "keyValue": "nie_teraz"
+            },
+            {
+              "keyName": "data_nastepnego",
+              "condition": "lte",
+              "keyValue": "={{ $now.toISO() }}"
+            }
+          ]
+        },
+        "limit": 3,
+        "orderBy": true,
+        "orderByColumn": "data_nastepnego",
+        "orderByDirection": "ASC"
+      },
+      "id": "9d7f5890-a2d8-49be-90b5-77142b62f23d",
+      "name": "Powroty po „nie teraz”",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1568,
+        192
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "status",
+              "keyValue": "gotowa"
+            },
+            {
+              "keyName": "email_sprawdzony",
+              "keyValue": "ok"
+            }
+          ]
+        },
+        "limit": 100,
+        "orderBy": true,
+        "orderByColumn": "priorytet"
+      },
+      "id": "81ebadbe-c8cf-47cc-9c13-93990b28ae23",
+      "name": "Gotowe maile",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1792,
+        192
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = $('Czy wysyłamy teraz?').first().json;\nconst rows = function (n) { return $(n).all().map(function (i) { return i.json; }).filter(function (r) { return r && r.id; }); };\nconst fu = rows('Follow-upy na dziś').filter(function (f) { return f.email && f.message_id && (f.etap === 1 || f.etap === 2); });\nconst pow = rows('Powroty po „nie teraz”').filter(function (f) { return f.email && f.thread_id; });\nconst got = rows('Gotowe maile').filter(function (f) { return f.email && f.tresc; });\nlet wybor = null;\nconst gotDozwolone = got.filter(function (f) { return b.kampanie[f.kampania_id] && b.kampanie[f.kampania_id].moze; });\nif (b.mozePierwszy && gotDozwolone.length) wybor = { typ: 'pierwszy', firma: gotDozwolone[0] };\nelse if (fu.length) wybor = { typ: fu[0].etap === 1 ? 'followup1' : 'followup2', firma: fu[0] };\nelse if (pow.length) wybor = { typ: 'powrot', firma: pow[0] };\nif (!wybor) return [];\nconst email = String(wybor.firma.email).toLowerCase();\nwybor.domena = email.split('@')[1] || '';\nwybor.test = b.test;\nwybor.do = b.test ? 'mrozikdigital@gmail.com' : email;\nreturn [{ json: wybor }];"
+      },
+      "id": "d7cd15ab-72c7-4c2d-b37a-cd24f00c7823",
+      "name": "Wybierz wiadomość",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_czarna_lista",
+          "cachedResultName": "cm_czarna_lista"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "wartosc",
+              "keyValue": "={{ String($json.firma.email).toLowerCase() }}"
+            },
+            {
+              "keyName": "wartosc",
+              "keyValue": "={{ $json.domena }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "id": "7c6acffa-6562-48e7-a392-681ac9e0d287",
+      "name": "Sprawdź czarną listę",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2240,
+        192
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $('Sprawdź czarną listę').all().filter(i => i.json && i.json.id).length }}",
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              },
+              "rightValue": 0
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "24a27d6a-34a8-4d8e-b491-e38a6226deb7",
+      "name": "Adres poza czarną listą?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2464,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $('Wybierz wiadomość').first().json.typ }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "pierwszy"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2d368a81-572f-4509-b1ae-08006168c21a",
+      "name": "Pierwszy mail czy kolejny?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2688,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const utf8 = function (s) { const o = []; for (let i = 0; i < s.length; i++) { let c = s.charCodeAt(i); if (c < 128) o.push(c); else if (c < 2048) o.push(192 | (c >> 6), 128 | (c & 63)); else if (c >= 55296 && c < 56320) { const c2 = s.charCodeAt(++i); const cp = 65536 + ((c - 55296) << 10) + (c2 - 56320); o.push(240 | (cp >> 18), 128 | ((cp >> 12) & 63), 128 | ((cp >> 6) & 63), 128 | (cp & 63)); } else o.push(224 | (c >> 12), 128 | ((c >> 6) & 63), 128 | (c & 63)); } return o; };\nconst b64 = function (b) { const T = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'; let o = ''; for (let i = 0; i < b.length; i += 3) { const x = b[i], y = b[i + 1], z = b[i + 2]; o += T[x >> 2] + T[((x & 3) << 4) | ((y === undefined ? 0 : y) >> 4)] + (y === undefined ? '=' : T[((y & 15) << 2) | ((z === undefined ? 0 : z) >> 6)]) + (z === undefined ? '=' : T[z & 63]); } return o; };\nconst ascii = function (s) { const o = []; for (let i = 0; i < s.length; i++) o.push(s.charCodeAt(i) & 255); return o; };\nconst zbudujMime = function (do_, temat, tresc, odpowiedzNa) {\n  const linie = [\n    'From: Phillip Mrozik <mrozikdigital@gmail.com>',\n    'To: ' + do_,\n    'Subject: =?UTF-8?B?' + b64(utf8(temat)) + '?=',\n    'MIME-Version: 1.0',\n    'Content-Type: text/plain; charset=\"UTF-8\"',\n    'Content-Transfer-Encoding: base64'\n  ];\n  if (odpowiedzNa) { linie.push('In-Reply-To: ' + odpowiedzNa); linie.push('References: ' + odpowiedzNa); }\n  const cialo = b64(utf8(tresc)).replace(/(.{76})/g, '$1\\r\\n');\n  const mime = linie.join('\\r\\n') + '\\r\\n\\r\\n' + cialo;\n  return b64(ascii(mime)).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');\n};\nconst w = $('Wybierz wiadomość').first().json;\nconst temat = (w.test ? '[TEST → ' + w.firma.email + '] ' : '') + (w.firma.temat || 'Propozycja współpracy');\nconst tresc = String(w.firma.tresc || '').replace(/ [—–] /g, ', ');\nreturn [{ json: { typ: 'pierwszy', temat: temat, tresc: tresc, cialo: { raw: zbudujMime(w.do, temat, tresc, '') } } }];"
+      },
+      "id": "aa5ced47-43c1-436c-9974-24809b3acd6e",
+      "name": "Przygotuj pierwszy mail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3584,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://gmail.googleapis.com/gmail/v1/users/me/messages/' + $('Wybierz wiadomość').first().json.firma.message_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "format",
+              "value": "metadata"
+            },
+            {
+              "name": "metadataHeaders",
+              "value": "Message-Id"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 20000
+        }
+      },
+      "id": "ad8ee00e-8129-41c2-aaa4-8c4254eb1573",
+      "name": "Gmail: nagłówki pierwszego maila",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2912,
+        192
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "mrozikdigital"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const w = $('Wybierz wiadomość').first().json;\nconst f = w.firma;\nconst instrukcje = {\n  followup1: 'Napisz bardzo krótkie przypomnienie (2-3 zdania) do wcześniejszego maila. Uprzejmie podbij temat, jednym prostym zdaniem przypomnij główną korzyść i zapytaj, czy przygotować darmową analizę. Bez nacisku.',\n  followup2: 'Napisz ostatnią, miłą wiadomość (2-3 zdania). Napisz, że nie chcesz zawracać głowy i to ostatnia wiadomość w tej sprawie. Dodaj, że gdyby temat wrócił, wystarczy odpisać na tego maila.',\n  powrot: 'Kilka tygodni temu firma odpisała, że teraz to nie jest dobry moment. Napisz krótką (2-3 zdania), uprzejmą wiadomość: odzywasz się zgodnie z tamtą rozmową i pytasz, czy temat jest już aktualny. Bez nacisku.'\n};\nconst instrukcja = [\n  'Piszesz w imieniu Phillipa Mrozika (MrozikDigital) kolejną wiadomość w tym samym wątku mailowym, po polsku, per Państwo.',\n  instrukcje[w.typ],\n  'Zasady: pierwsza linia to Dzień dobry, (z przecinkiem). Prosty, ludzki język. Bez wykrzykników, emotikon, słów technicznych (workflow, integracja, API, n8n, CRM, chatbot), bez propozycji strony internetowej, bez długich myślników, bez podpisu i pozdrowień. Nie powtarzaj całego pierwszego maila.'\n].join('\\n');\nconst dane = { typ: w.typ, firma: { nazwa: f.nazwa, branza: f.branza }, glowny_temat: f.pomysl_glowny || '', pierwszy_mail: String(f.tresc || '').slice(0, 1500) };\nconst schemat = { type: 'object', additionalProperties: false, required: ['tresc'], properties: { tresc: { type: 'string' } } };\nreturn [{ json: { naglowek: ((((($input.first().json || {}).payload) || {}).headers) || []).filter(function (h) { return /^message-id$/i.test(h.name); }).map(function (h) { return h.value; })[0] || '', zapytanie: { model: 'gpt-5.4-mini', reasoning: { effort: 'low' }, input: [{ role: 'system', content: instrukcja }, { role: 'user', content: JSON.stringify(dane) }], text: { format: { type: 'json_schema', name: 'wiadomosc', strict: true, schema: schemat } } } } }];"
+      },
+      "id": "0f02ca58-eb72-4fa1-89d6-da37056a79a3",
+      "name": "Przygotuj treść kolejnej wiadomości",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3136,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.zapytanie }}",
+        "options": {
+          "timeout": 90000
+        }
+      },
+      "id": "b21a5136-a1ff-4af8-8fd7-4b235285253d",
+      "name": "AI: napisz kolejną wiadomość",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        3360,
+        192
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const utf8 = function (s) { const o = []; for (let i = 0; i < s.length; i++) { let c = s.charCodeAt(i); if (c < 128) o.push(c); else if (c < 2048) o.push(192 | (c >> 6), 128 | (c & 63)); else if (c >= 55296 && c < 56320) { const c2 = s.charCodeAt(++i); const cp = 65536 + ((c - 55296) << 10) + (c2 - 56320); o.push(240 | (cp >> 18), 128 | ((cp >> 12) & 63), 128 | ((cp >> 6) & 63), 128 | (cp & 63)); } else o.push(224 | (c >> 12), 128 | ((c >> 6) & 63), 128 | (c & 63)); } return o; };\nconst b64 = function (b) { const T = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'; let o = ''; for (let i = 0; i < b.length; i += 3) { const x = b[i], y = b[i + 1], z = b[i + 2]; o += T[x >> 2] + T[((x & 3) << 4) | ((y === undefined ? 0 : y) >> 4)] + (y === undefined ? '=' : T[((y & 15) << 2) | ((z === undefined ? 0 : z) >> 6)]) + (z === undefined ? '=' : T[z & 63]); } return o; };\nconst ascii = function (s) { const o = []; for (let i = 0; i < s.length; i++) o.push(s.charCodeAt(i) & 255); return o; };\nconst zbudujMime = function (do_, temat, tresc, odpowiedzNa) {\n  const linie = [\n    'From: Phillip Mrozik <mrozikdigital@gmail.com>',\n    'To: ' + do_,\n    'Subject: =?UTF-8?B?' + b64(utf8(temat)) + '?=',\n    'MIME-Version: 1.0',\n    'Content-Type: text/plain; charset=\"UTF-8\"',\n    'Content-Transfer-Encoding: base64'\n  ];\n  if (odpowiedzNa) { linie.push('In-Reply-To: ' + odpowiedzNa); linie.push('References: ' + odpowiedzNa); }\n  const cialo = b64(utf8(tresc)).replace(/(.{76})/g, '$1\\r\\n');\n  const mime = linie.join('\\r\\n') + '\\r\\n\\r\\n' + cialo;\n  return b64(ascii(mime)).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');\n};\nconst w = $('Wybierz wiadomość').first().json;\nconst p = $('Przygotuj treść kolejnej wiadomości').first().json;\nlet tekst = '';\n((($input.first().json) || {}).output || []).forEach(function (o) { if (o.type === 'message') (o.content || []).forEach(function (c) { if (c.type === 'output_text') tekst = c.text; }); });\nlet tresc = '';\ntry { tresc = String(JSON.parse(tekst).tresc || '').trim(); } catch (e) { tresc = ''; }\ntresc = tresc.replace(/\\n*(pozdrawiam|z pozdrowieniami)[\\s\\S]*$/i, '').trim().replace(/ [—–] /g, ', ');\nconst zle = !tresc || tresc.length < 60 || tresc.length > 700 || /!|workflow|integracj|\\bAPI\\b|n8n|\\bCRM\\b|chatbot|stron[aęy] internetow|witryn|\\p{Extended_Pictographic}/iu.test(tresc);\nconst zapas = {\n  followup1: 'Dzień dobry,\\n\\nuprzejmie podbijam moją wcześniejszą wiadomość. Czy temat jest dla Państwa aktualny? Chętnie przygotuję darmową, krótką analizę, co da się usprawnić.',\n  followup2: 'Dzień dobry,\\n\\nnie chcę zawracać głowy, więc to moja ostatnia wiadomość w tej sprawie. Gdyby temat kiedyś wrócił, wystarczy odpisać na tego maila.',\n  powrot: 'Dzień dobry,\\n\\nkilka tygodni temu pisali Państwo, że to nie był dobry moment, więc odzywam się zgodnie z tamtą rozmową. Czy temat jest już dla Państwa aktualny?'\n};\nif (zle) tresc = zapas[w.typ];\ntresc = tresc + '\\n\\nPozdrawiam\\nPhillip Mrozik\\nMrozikDigital | 787 957 534';\nconst temat = (w.test ? '[TEST → ' + w.firma.email + '] ' : '') + 'Re: ' + (w.firma.temat || 'Propozycja współpracy');\nconst cialo = { raw: zbudujMime(w.do, temat, tresc, p.naglowek) };\nif (w.firma.thread_id) cialo.threadId = w.firma.thread_id;\nreturn [{ json: { typ: w.typ, temat: temat, tresc: tresc, cialo: cialo, awaryjna: zle } }];"
+      },
+      "id": "0e977a0b-a7bd-4dbc-a917-cd05300361bb",
+      "name": "Sprawdź i złóż kolejną wiadomość",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3584,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{ $('Wybierz wiadomość').first().json.firma.id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "odrzucona",
+            "powod": "adres lub domena na czarnej liście (sprawdzone przed wysyłką)"
+          },
+          "schema": [
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "powod",
+              "displayName": "powod",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "42b33077-d1fd-4d1e-92d0-4a8d18540a62",
+      "name": "Zablokuj firmę z czarnej listy",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2688,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "amount": "={{ $execution.mode !== 'production' ? 1 : Math.floor(Math.random() * 50) + 5 }}"
+      },
+      "id": "babb1ee7-351f-48ce-9961-144f0a1b5b9c",
+      "name": "Losowy odstęp",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3808,
+        96
+      ],
+      "webhookId": "8409fdc1-3a61-42a0-a99c-16a2919acf5c"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.cialo }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "4b121765-f849-4467-b69f-a54cd8aff97a",
+      "name": "Gmail: wyślij",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        4032,
+        96
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "mrozikdigital"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const w = $('Wybierz wiadomość').first().json;\nconst b = $('Czy wysyłamy teraz?').first().json;\nconst m = $('Losowy odstęp').first().json;\nconst odp = $input.first().json;\nconst teraz = $now.setZone('Europe/Warsaw');\nconst dodajRobocze = function (dt, n) { let d = dt; let k = 0; while (k < n) { d = d.plus({ days: 1 }); if (d.weekday <= 5 && (b.swieta || []).indexOf(d.toFormat('yyyy-MM-dd')) === -1) k++; } return d.set({ hour: 7, minute: Math.floor(Math.random() * 50) }); };\nconst f = w.firma;\nlet aktualizacja = {};\nif (w.typ === 'pierwszy') aktualizacja = { status: 'wyslana', etap: 1, data_wyslania: teraz.toISO(), data_nastepnego: dodajRobocze(teraz, 3).toISO(), thread_id: odp.threadId, message_id: odp.id };\nif (w.typ === 'followup1') aktualizacja = { status: 'wyslana', etap: 2, data_wyslania: f.data_wyslania, data_nastepnego: dodajRobocze(teraz, 4).toISO(), thread_id: f.thread_id, message_id: f.message_id };\nif (w.typ === 'followup2') aktualizacja = { status: 'zakonczona', etap: 3, data_wyslania: f.data_wyslania, data_nastepnego: null, thread_id: f.thread_id, message_id: f.message_id };\nif (w.typ === 'powrot') aktualizacja = { status: 'zakonczona', etap: 3, data_wyslania: f.data_wyslania, data_nastepnego: null, thread_id: f.thread_id, message_id: f.message_id };\naktualizacja.id = f.id;\nreturn [{ json: { firma: aktualizacja, log: { firma_id: f.id, kampania_id: f.kampania_id || '', email: f.email, typ: w.typ, temat: m.temat, tresc: m.tresc, thread_id: odp.threadId || f.thread_id, message_id: odp.id, status: 'wyslany', data: teraz.toISO(), tryb_testowy: !!w.test } } }];"
+      },
+      "id": "33a2f7db-03f0-4046-8c6f-b365ff57ce73",
+      "name": "Zapisz wynik wysyłki",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4256,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{ $json.firma.id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "={{ $json.firma.status }}",
+            "etap": "={{ $json.firma.etap }}",
+            "data_wyslania": "={{ $json.firma.data_wyslania }}",
+            "data_nastepnego": "={{ $json.firma.data_nastepnego }}",
+            "thread_id": "={{ $json.firma.thread_id }}",
+            "message_id": "={{ $json.firma.message_id }}"
+          },
+          "schema": [
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "etap",
+              "displayName": "etap",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "data_wyslania",
+              "displayName": "data_wyslania",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "data_nastepnego",
+              "displayName": "data_nastepnego",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "thread_id",
+              "displayName": "thread_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fc1ffcf1-78b1-4319-832a-0acb25699bb2",
+      "name": "Zaktualizuj firmę",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        4480,
+        0
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_wysylki",
+          "cachedResultName": "cm_wysylki"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "schema": [
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "firma_id",
+              "id": "firma_id",
+              "required": false,
+              "type": "number"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "kampania_id",
+              "id": "kampania_id",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "email",
+              "id": "email",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "typ",
+              "id": "typ",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "temat",
+              "id": "temat",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "tresc",
+              "id": "tresc",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "thread_id",
+              "id": "thread_id",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "message_id",
+              "id": "message_id",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "status",
+              "id": "status",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "data",
+              "id": "data",
+              "required": false,
+              "type": "dateTime"
+            },
+            {
+              "canBeUsedToMatch": true,
+              "defaultMatch": false,
+              "display": true,
+              "displayName": "tryb_testowy",
+              "id": "tryb_testowy",
+              "required": false,
+              "type": "boolean"
+            }
+          ],
+          "value": {
+            "data": "={{ $('Zapisz wynik wysyłki').first().json.log.data }}",
+            "email": "={{ $('Zapisz wynik wysyłki').first().json.log.email }}",
+            "firma_id": "={{ $('Zapisz wynik wysyłki').first().json.log.firma_id }}",
+            "kampania_id": "={{ $('Zapisz wynik wysyłki').first().json.log.kampania_id }}",
+            "message_id": "={{ $('Zapisz wynik wysyłki').first().json.log.message_id }}",
+            "status": "wyslany",
+            "temat": "={{ $('Zapisz wynik wysyłki').first().json.log.temat }}",
+            "thread_id": "={{ $('Zapisz wynik wysyłki').first().json.log.thread_id }}",
+            "tresc": "={{ $('Zapisz wynik wysyłki').first().json.log.tresc }}",
+            "tryb_testowy": "={{ $('Zapisz wynik wysyłki').first().json.log.tryb_testowy }}",
+            "typ": "={{ $('Zapisz wynik wysyłki').first().json.log.typ }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "7b5776ed-0968-47df-bef5-440b586dd9d5",
+      "name": "Zapisz w historii wysyłek",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        4704,
+        0
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const esc = function (t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };\nconst ocen = function (opis, nazwaNode) {\n  const m = String(opis || '').toLowerCase();\n  const n = String(nazwaNode || '').toLowerCase();\n  let usluga = 'jedną z usług';\n  if (n.indexOf('gmail') !== -1) usluga = 'Gmailem';\n  if (/\\b(401|403)\\b|unauthori|forbidden|invalid_grant|invalid.{0,20}(credential|token|api.?key)|credentials? (are|is) (invalid|wrong)|permission|token has been expired|revoked/.test(m)) {\n    return { powazny: true, klucz: 'auth:' + usluga, co: 'Przestało działać połączenie z ' + usluga + ' (wygasło logowanie albo klucz).', rada: 'Wejdź w n8n → Credentials → mrozikdigital i połącz konto ponownie. Dopóki tego nie zrobisz, żaden mail nie wyjdzie.' };\n  }\n  if (/insufficient_quota|billing|credit balance|exceeded your current quota|\\b402\\b|payment required|daily sending quota|daily user sending limit|user-rate limit exceeded|\\b429\\b|rate.?limit/.test(m)) {\n    return { powazny: true, klucz: 'limit:' + usluga, co: 'Gmail ograniczył wysyłkę (za dużo maili w krótkim czasie).', rada: 'Wyłącz system przyciskiem poniżej i zmniejsz limity kampanii. Gmail odblokowuje się zwykle po 24 godzinach.' };\n  }\n  if (/timeout|timed out|etimedout|econnreset|econnrefused|enotfound|socket hang up|\\b50[0234]\\b|unavailable|bad gateway/.test(m)) {\n    return { powazny: false, klucz: 'chwilowy:' + usluga, co: 'Gmail ciągle nie odpowiada.', rada: 'Zwykle przechodzi samo. Jeśli alert wróci, sprawdź, czy Gmail działa.' };\n  }\n  return { powazny: false, klucz: 'inny:gmail', co: 'Gmail kilka razy odrzucił wiadomość.', rada: 'Warto zajrzeć w n8n do listy wykonań wysyłki i sprawdzić szczegóły.' };\n};\nconst s = $getWorkflowStaticData('global');\nconst teraz = Date.now();\ns.bledy = s.bledy || {};\ns.zgloszone = s.zgloszone || {};\nconst PROG_POWTORZEN = 3;\nconst wej = $input.first().json;\nconst blad = wej.error || wej;\nconst nazwa = 'Gmail: wyślij';\nconst w = $('Wybierz wiadomość').first().json;\nconst opis = String(blad.message || '') + ' ' + String(blad.description || '') + ' ' + JSON.stringify(blad).slice(0, 2000);\nconst o = ocen(opis, nazwa);\nconst lista = (s.bledy[o.klucz] || []).filter(function (t) { return teraz - t < 3600000; });\nlista.push(teraz);\ns.bledy[o.klucz] = lista;\nObject.keys(s.bledy).forEach(function (k) { s.bledy[k] = s.bledy[k].filter(function (t) { return teraz - t < 3600000; }); if (!s.bledy[k].length) delete s.bledy[k]; });\nif (!o.powazny && lista.length < PROG_POWTORZEN) return [];\nif (s.zgloszone[o.klucz] && teraz - s.zgloszone[o.klucz] < 3 * 3600000) return [];\ns.zgloszone[o.klucz] = teraz;\nconst naglowek = o.powazny ? '🚨 <b>Wysyłka maili: poważny problem</b>' : '⚠️ <b>Wysyłka maili: problem się powtarza</b> (' + lista.length + 'x w ostatniej godzinie)';\nreturn [{ json: { tekst: naglowek + '\\nNie wyszedł mail (' + esc(w.typ) + ') do ' + esc(w.firma.email) + '. Firma zostaje w kolejce i system spróbuje ponownie.\\n\\n<b>Co się stało:</b> ' + esc(o.co) + '\\n<b>Co zrobić:</b> ' + esc(o.rada) + '\\n\\n<i>Szczegóły: ' + esc(String(blad.message || JSON.stringify(blad)).slice(0, 180)) + '</i>\\n\\nPrzycisk poniżej zatrzymuje cały system (szukanie, research i wysyłkę). Ten sam problem nie będzie zgłaszany częściej niż co 3 godziny.' } }];\n"
+      },
+      "id": "f9dcc091-7b61-4aa2-b67c-c5e8d70e88f5",
+      "name": "Błąd wysyłki",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4256,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "TWOJ_TELEGRAM_CHAT_ID",
+        "text": "={{ $json.tekst }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "⏸️ Wyłącz wszystko",
+                    "additionalFields": {
+                      "url": "https://TWOJA-INSTANCJA.app.n8n.cloud/webhook/cold-mail-sterowanie?akcja=stop&klucz=TWOJ_KLUCZ_STEROWANIA"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "3252f571-02e9-4633-82eb-aeadeaedbcb0",
+      "name": "Telegram: błąd Gmaila",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        4480,
+        192
+      ],
+      "webhookId": "0a7310ac-a9f4-4bd7-a109-b9cca1708c55",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Pain Radar Bot"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "7705932c-9149-4341-acaa-5946233fa579",
+      "name": "Gdy wystąpi błąd",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const esc = function (t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };\nconst ocen = function (opis, nazwaNode) {\n  const m = String(opis || '').toLowerCase();\n  const n = String(nazwaNode || '').toLowerCase();\n  let usluga = 'jedną z usług';\n  if (n.indexOf('gmail') !== -1) usluga = 'Gmailem';\n  else if (n.indexOf('ai:') !== -1 || m.indexOf('openai') !== -1) usluga = 'OpenAI';\n  else if (n.indexOf('google') !== -1) usluga = 'Google Maps';\n  else if (n.indexOf('firecrawl') !== -1) usluga = 'Firecrawlem';\n  else if (n.indexOf('telegram') !== -1) usluga = 'Telegramem';\n  else if (/pobierz|zapisz|oznacz|zaktualizuj|usu|firma z|ostatnie|dzisiejsze|gotowe|follow|powroty|raport|odpowiedzi|już obsłużone/.test(n)) usluga = 'bazą danych n8n';\n  if (/\\b(401|403)\\b|unauthori|forbidden|invalid_grant|invalid.{0,20}(credential|token|api.?key)|credentials? (are|is) (invalid|wrong)|permission|token has been expired|revoked/.test(m)) {\n    return { powazny: true, klucz: 'auth:' + usluga, co: 'Przestało działać połączenie z ' + usluga + ' (wygasło logowanie albo klucz).', rada: 'Wejdź w n8n → Credentials i połącz to konto ponownie. Dopóki tego nie zrobisz, ta część systemu stoi.' };\n  }\n  if (/insufficient_quota|billing|credit balance|exceeded your current quota|\\b402\\b|payment required|daily sending quota|daily user sending limit|user-rate limit exceeded/.test(m)) {\n    return { powazny: true, klucz: 'limit:' + usluga, co: usluga === 'Gmailem' ? 'Gmail zablokował wysyłkę na dziś (za dużo maili).' : 'Skończyły się środki albo limit na koncie (' + usluga + ').', rada: usluga === 'Gmailem' ? 'Wyłącz system przyciskiem poniżej i zmniejsz limity kampanii. Gmail odblokuje się zwykle po 24 godzinach.' : 'Doładuj konto albo zwiększ limit w tej usłudze. Do tego czasu ta część systemu stoi.' };\n  }\n  if (/timeout|timed out|etimedout|econnreset|econnrefused|enotfound|socket hang up|\\b50[0234]\\b|unavailable|bad gateway|overloaded|\\b429\\b|rate.?limit|too many requests/.test(m)) {\n    return { powazny: false, klucz: 'chwilowy:' + usluga, co: 'Połączenie z ' + usluga + ' ciągle nie działa (serwis nie odpowiada albo jest przeciążony).', rada: 'Zwykle przechodzi samo. Jeśli dostaniesz ten alert jeszcze raz, sprawdź stronę statusu tej usługi.' };\n  }\n  return { powazny: false, klucz: 'inny:' + n, co: 'Ten sam błąd powtarza się w kroku „' + nazwaNode + '”.', rada: 'Pojedyncze przypadki system pomija sam. Skoro się powtarza, warto rzucić okiem w n8n (lista wykonań tego workflowu).' };\n};\nconst s = $getWorkflowStaticData('global');\nconst teraz = Date.now();\ns.bledy = s.bledy || {};\ns.zgloszone = s.zgloszone || {};\nconst PROG_POWTORZEN = 4;\nconst ex = $input.first().json.execution || {};\nconst blad = ex.error || {};\nconst nazwa = (blad.node || {}).name || ex.lastNodeExecuted || '';\nconst opis = String(blad.message || '') + ' ' + String(blad.description || '') + ' ' + JSON.stringify(blad).slice(0, 2000);\nconst o = ocen(opis, nazwa);\nconst lista = (s.bledy[o.klucz] || []).filter(function (t) { return teraz - t < 3600000; });\nlista.push(teraz);\ns.bledy[o.klucz] = lista;\nObject.keys(s.bledy).forEach(function (k) { s.bledy[k] = s.bledy[k].filter(function (t) { return teraz - t < 3600000; }); if (!s.bledy[k].length) delete s.bledy[k]; });\nif (!o.powazny && lista.length < PROG_POWTORZEN) return [];\nif (s.zgloszone[o.klucz] && teraz - s.zgloszone[o.klucz] < 3 * 3600000) return [];\ns.zgloszone[o.klucz] = teraz;\nconst naglowek = o.powazny ? '🚨 <b>Wysyłka maili: poważny problem</b>' : '⚠️ <b>Wysyłka maili: problem się powtarza</b> (' + lista.length + 'x w ostatniej godzinie)';\nreturn [{ json: { tekst: naglowek + '\\n\\n<b>Co się stało:</b> ' + esc(o.co) + '\\n<b>Co zrobić:</b> ' + esc(o.rada) + '\\n\\n<i>Szczegóły: ' + esc(nazwa) + ' – ' + esc(String(blad.message || '').slice(0, 180)) + '</i>\\n\\nPrzycisk poniżej zatrzymuje cały system (szukanie, research i wysyłkę). Ten sam problem nie będzie zgłaszany częściej niż co 3 godziny.' } }];\n"
+      },
+      "id": "43b920fd-2e60-41e5-9f9d-c9717e5a88f8",
+      "name": "Nie spamuj błędami",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "TWOJ_TELEGRAM_CHAT_ID",
+        "text": "={{ $json.tekst }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "⏸️ Wyłącz wszystko",
+                    "additionalFields": {
+                      "url": "https://TWOJA-INSTANCJA.app.n8n.cloud/webhook/cold-mail-sterowanie?akcja=stop&klucz=TWOJ_KLUCZ_STEROWANIA"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "e2c454c3-ac4f-47b2-b06a-8f3bb5615ea2",
+      "name": "Telegram: błąd wysyłki",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        448,
+        512
+      ],
+      "webhookId": "090c07ec-2329-47e6-a1b4-050e3d0dd848",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Pain Radar Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "cm_kampanie",
+          "mode": "id",
+          "value": "ID_TABELI_cm_kampanie"
+        },
+        "returnAll": true
+      },
+      "id": "73923a19-d21b-4188-b39d-46ca6fb1df87",
+      "name": "Pobierz kampanie",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        304
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Jeden przebieg wysyła maksymalnie 4 wiadomości, potem czeka na kolejny przebieg za 30 minut.\nif ($runIndex >= 3) return [];\nreturn [{ json: { kolejny: $runIndex + 2 } }];"
+      },
+      "id": "00917347-8984-4e67-88a0-ac4d38c2f039",
+      "name": "Jeszcze jeden mail?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4928,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "amount": "={{ $execution.mode !== 'production' ? 2 : Math.floor(Math.random() * 120) + 60 }}"
+      },
+      "id": "ed7f86fa-3273-4d56-943b-9954f73c5fac",
+      "name": "Przerwa między mailami",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        5152,
+        0
+      ],
+      "webhookId": "0b694016-8d6f-4808-99ad-957b8c40a6a2"
+    }
+  ],
+  "connections": {
+    "Pobierz ustawienia": {
+      "main": [
+        [
+          {
+            "node": "Święta w Polsce",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wyślij teraz (ręcznie)": {
+      "main": [
+        [
+          {
+            "node": "Pobierz ustawienia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Święta w Polsce": {
+      "main": [
+        [
+          {
+            "node": "Długie weekendy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Długie weekendy": {
+      "main": [
+        [
+          {
+            "node": "Dzisiejsze wysyłki",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Czy wysyłamy teraz?": {
+      "main": [
+        [
+          {
+            "node": "Follow-upy na dziś",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Follow-upy na dziś": {
+      "main": [
+        [
+          {
+            "node": "Powroty po „nie teraz”",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Powroty po „nie teraz”": {
+      "main": [
+        [
+          {
+            "node": "Gotowe maile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gotowe maile": {
+      "main": [
+        [
+          {
+            "node": "Wybierz wiadomość",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wybierz wiadomość": {
+      "main": [
+        [
+          {
+            "node": "Sprawdź czarną listę",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sprawdź czarną listę": {
+      "main": [
+        [
+          {
+            "node": "Adres poza czarną listą?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Adres poza czarną listą?": {
+      "main": [
+        [
+          {
+            "node": "Pierwszy mail czy kolejny?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Zablokuj firmę z czarnej listy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pierwszy mail czy kolejny?": {
+      "main": [
+        [
+          {
+            "node": "Przygotuj pierwszy mail",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gmail: nagłówki pierwszego maila",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Przygotuj pierwszy mail": {
+      "main": [
+        [
+          {
+            "node": "Losowy odstęp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: nagłówki pierwszego maila": {
+      "main": [
+        [
+          {
+            "node": "Przygotuj treść kolejnej wiadomości",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Przygotuj treść kolejnej wiadomości": {
+      "main": [
+        [
+          {
+            "node": "AI: napisz kolejną wiadomość",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: napisz kolejną wiadomość": {
+      "main": [
+        [
+          {
+            "node": "Sprawdź i złóż kolejną wiadomość",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sprawdź i złóż kolejną wiadomość": {
+      "main": [
+        [
+          {
+            "node": "Losowy odstęp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Losowy odstęp": {
+      "main": [
+        [
+          {
+            "node": "Gmail: wyślij",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: wyślij": {
+      "main": [
+        [
+          {
+            "node": "Zapisz wynik wysyłki",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Błąd wysyłki",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zapisz wynik wysyłki": {
+      "main": [
+        [
+          {
+            "node": "Zaktualizuj firmę",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zaktualizuj firmę": {
+      "main": [
+        [
+          {
+            "node": "Zapisz w historii wysyłek",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Błąd wysyłki": {
+      "main": [
+        [
+          {
+            "node": "Telegram: błąd Gmaila",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gdy wystąpi błąd": {
+      "main": [
+        [
+          {
+            "node": "Nie spamuj błędami",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nie spamuj błędami": {
+      "main": [
+        [
+          {
+            "node": "Telegram: błąd wysyłki",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dzisiejsze wysyłki": {
+      "main": [
+        [
+          {
+            "node": "Pobierz kampanie",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pobierz kampanie": {
+      "main": [
+        [
+          {
+            "node": "Czy wysyłamy teraz?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Co 30 minut (pn–pt 6:00–15:00)": {
+      "main": [
+        [
+          {
+            "node": "Pobierz ustawienia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zapisz w historii wysyłek": {
+      "main": [
+        [
+          {
+            "node": "Jeszcze jeden mail?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jeszcze jeden mail?": {
+      "main": [
+        [
+          {
+            "node": "Przerwa między mailami",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Przerwa między mailami": {
+      "main": [
+        [
+          {
+            "node": "Pobierz ustawienia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Warsaw",
+    "executionTimeout": 1500,
+    "saveManualExecutions": true
+  },
+  "pinData": {}
+}

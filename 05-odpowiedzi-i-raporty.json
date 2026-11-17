@@ -1,0 +1,2818 @@
+{
+  "name": "Cold Mail AI — Odpowiedzi i raporty",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 */15 7-21 * * *"
+            },
+            {
+              "field": "cronExpression",
+              "expression": "0 0 22,23,0-6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "013b01a4-1000-4432-a8cb-57da0ecb199d",
+      "name": "Co 15 min (noc co godz.): sprawdź skrzynkę",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "in:inbox -from:me newer_than:4d -category:promotions -category:social -category:updates -category:forums"
+            },
+            {
+              "name": "maxResults",
+              "value": "30"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "759e6f2f-14de-4e6a-9f62-8d6e08b2a41e",
+      "name": "Gmail: nowe wiadomości",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        224,
+        512
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "mrozikdigital"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "e649a54d-b528-4461-b62e-5149cee73b4b",
+      "name": "Sprawdź skrzynkę ręcznie",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_odpowiedzi",
+          "cachedResultName": "cm_odpowiedzi"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "data",
+              "condition": "gte",
+              "keyValue": "={{ $now.minus({ days: 7 }).toISO() }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "id": "a7d60d9f-33e4-4d0d-a7d7-0f9818ee2877",
+      "name": "Już obsłużone wiadomości",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        512
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const lista = ($('Gmail: nowe wiadomości').first().json.messages) || [];\nconst znane = {};\n$('Już obsłużone wiadomości').all().forEach(function (i) { if (i.json && i.json.message_id) znane[i.json.message_id] = true; });\nconst nowe = lista.filter(function (m) { return !znane[m.id]; });\nif (!nowe.length) return [];\nconst m = nowe[nowe.length - 1];\nreturn [{ json: { id: m.id, threadId: m.threadId, zostalo: nowe.length - 1 } }];"
+      },
+      "id": "09b8bb21-e393-4ab6-ad45-81d79e8b3c5c",
+      "name": "Wybierz nową wiadomość",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://gmail.googleapis.com/gmail/v1/users/me/messages/' + $json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "format",
+              "value": "full"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "50735c04-ec7e-470f-8b3f-02665266c026",
+      "name": "Gmail: pobierz wiadomość",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        896,
+        512
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "mrozikdigital"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const msg = $input.first().json;\nconst T = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';\nconst zB64 = function (s) { s = String(s || '').replace(/-/g, '+').replace(/_/g, '/').replace(/[^A-Za-z0-9+\\/]/g, ''); const o = []; let bufor = 0, bity = 0; for (let i = 0; i < s.length; i++) { bufor = (bufor << 6) | T.indexOf(s[i]); bity += 6; if (bity >= 8) { bity -= 8; o.push((bufor >> bity) & 255); } } return o; };\nconst zUtf8 = function (b) { let s = ''; for (let i = 0; i < b.length; i++) { const c = b[i]; if (c < 128) s += String.fromCharCode(c); else if (c >= 192 && c < 224) { s += String.fromCharCode(((c & 31) << 6) | (b[++i] & 63)); } else if (c >= 224 && c < 240) { s += String.fromCharCode(((c & 15) << 12) | ((b[++i] & 63) << 6) | (b[++i] & 63)); } else if (c >= 240) { let cp = ((c & 7) << 18) | ((b[++i] & 63) << 12) | ((b[++i] & 63) << 6) | (b[++i] & 63); cp -= 65536; s += String.fromCharCode(55296 + (cp >> 10), 56320 + (cp & 1023)); } } return s; };\nconst naglowki = {};\n(((msg.payload || {}).headers) || []).forEach(function (h) { naglowki[h.name.toLowerCase()] = h.value; });\nlet tekst = '', html = '', raport = '';\nconst przejdz = function (p) {\n  if (!p) return;\n  const typ = String(p.mimeType || '').toLowerCase();\n  if (p.body && p.body.data) {\n    const t = zUtf8(zB64(p.body.data));\n    if (typ === 'text/plain' && !tekst) tekst = t;\n    else if (typ === 'text/html' && !html) html = t;\n    else if (typ.indexOf('delivery-status') !== -1) raport += t;\n  }\n  (p.parts || []).forEach(przejdz);\n};\nprzejdz(msg.payload);\nif (!tekst && html) tekst = html.replace(/<style[\\s\\S]*?<\\/style>/gi, ' ').replace(/<br\\s*\\/?>/gi, '\\n').replace(/<\\/p>/gi, '\\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/[ \\t]+/g, ' ');\nif (!tekst) tekst = msg.snippet || '';\nconst odKogo = naglowki.from || '';\nconst adres = ((odKogo.match(/<([^>]+)>/) || [])[1] || odKogo).trim().toLowerCase();\nconst temat = naglowki.subject || '';\nconst nowaCzesc = tekst.split(/\\n(?:>|On .+wrote:|W dniu .+napisał|-----Original|-----Oryginalna|Od: )/)[0].trim().slice(0, 3000);\nconst jestBounce = /mailer-daemon|postmaster|mail delivery/i.test(odKogo) || /(delivery status notification|undeliver|niedostarcz|nie można dostarczyć|returned mail|delivery failure|address not found)/i.test(temat);\nlet zlyAdres = (naglowki['x-failed-recipients'] || '').split(',')[0].trim().toLowerCase();\nif (jestBounce && !zlyAdres) {\n  const kandydaci = (String(raport + ' ' + tekst).match(/[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}/gi) || []).map(function (e) { return e.toLowerCase(); }).filter(function (e) { return !/mailer-daemon|postmaster|mrozikdigital@gmail\\.com|googlemail|google\\.com/.test(e); });\n  zlyAdres = kandydaci[0] || '';\n}\nconst twardy = jestBounce && !/(mailbox full|skrzynka.*pełna|over quota|temporar|tymczasow|try again later)/i.test(raport + ' ' + tekst);\nreturn [{ json: { message_id: msg.id, thread_id: msg.threadId, rfc_id: naglowki['message-id'] || '', od: odKogo, adres: adres, domena: adres.split('@')[1] || '', temat: temat, tresc: nowaCzesc, bounce: jestBounce, twardy_bounce: twardy, zly_adres: zlyAdres, data: $now.toISO() } }];"
+      },
+      "id": "17e25cb2-a11c-4ef0-b99f-49ef2cddc676",
+      "name": "Odczytaj wiadomość",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "thread_id",
+              "keyValue": "={{ $('Odczytaj wiadomość').first().json.thread_id }}"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "id": "1e58d739-8a0e-4110-b81f-c457f9a5f9c4",
+      "name": "Firma z tego wątku",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1344,
+        512
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email",
+              "keyValue": "={{ $('Odczytaj wiadomość').first().json.bounce ? ($('Odczytaj wiadomość').first().json.zly_adres || '-') : $('Odczytaj wiadomość').first().json.adres }}"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "id": "c13b9d9e-8501-4a0f-b04e-6d70cd2eac29",
+      "name": "Firma z tym adresem",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1568,
+        512
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email",
+              "condition": "ilike",
+              "keyValue": "={{ /^(gmail|googlemail|wp|o2|onet|op|interia|poczta\\.onet|vp|tlen|outlook|hotmail|live|icloud|yahoo|gazeta|interia\\.eu|int|buziaczek|autograf|go2|poczta\\.fm)\\.(pl|com|eu)$/i.test($('Odczytaj wiadomość').first().json.domena) || !$('Odczytaj wiadomość').first().json.domena ? '%@-brak-' : '%@' + $('Odczytaj wiadomość').first().json.domena }}"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "id": "4f6d4112-3a96-4289-b38e-070e0a38a928",
+      "name": "Firma z tej domeny",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1792,
+        512
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const m = $('Odczytaj wiadomość').first().json;\nconst pierwszy = function (n) { const r = $(n).all().map(function (i) { return i.json; }).filter(function (x) { return x && x.id; }); return r[0] || null; };\nconst firma = pierwszy('Firma z tego wątku') || pierwszy('Firma z tym adresem') || (m.bounce ? null : pierwszy('Firma z tej domeny'));\nlet rodzaj = 'obca';\nif (m.bounce && firma) rodzaj = m.twardy_bounce ? 'bounce' : 'obca';\nelse if (!m.bounce && firma) rodzaj = 'odpowiedz';\nreturn [{ json: { rodzaj: rodzaj, firma: firma, wiadomosc: m } }];"
+      },
+      "id": "ef82f765-2df3-4127-b5f1-993e27ece62a",
+      "name": "Dopasuj do firmy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.rodzaj }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "odpowiedz"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.rodzaj }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "bounce"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.rodzaj }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "obca"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "78bf994c-6485-4f3b-b6b0-aa125d0567fa",
+      "name": "Co to za wiadomość?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2240,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\nconst instrukcja = [\n  'Klasyfikujesz odpowiedź firmy na mail z propozycją współpracy (automatyzacje AI) wysłany przez Phillipa Mrozika.',\n  'Kategorie:',\n  '- zainteresowany: firma chce wiedzieć więcej, prosi o analizę, pyta o cenę, szczegóły, termin rozmowy lub zadaje jakiekolwiek pytanie o ofertę.',\n  '- nie_teraz: teraz nie, ale nie zamyka tematu (brak czasu, inny termin, odezwijcie się później, może w przyszłości).',\n  '- odmowa: wyraźne nie, nie jesteśmy zainteresowani, proszę nie pisać, wypisz mnie, zgłoszenie spamu, irytacja.',\n  '- autoresponder: automatyczna odpowiedź (urlop, nieobecność, potwierdzenie otrzymania, zgłoszenie przyjęte, zmiana adresu).',\n  'W razie wątpliwości między zainteresowany a nie_teraz wybierz zainteresowany. Między nie_teraz a odmowa wybierz odmowa.',\n  'streszczenie: jedno proste zdanie po polsku, co napisała firma.',\n  'powrot_dni: tylko dla autorespondera z datą powrotu - za ile dni od dziś osoba wraca (0 gdy brak daty). Dla innych kategorii 0.'\n].join('\\n');\nconst dane = { temat: d.wiadomosc.temat, od: d.wiadomosc.od, tresc: d.wiadomosc.tresc, dzisiaj: $now.toFormat('yyyy-MM-dd') };\nconst schemat = { type: 'object', additionalProperties: false, required: ['kategoria', 'streszczenie', 'powrot_dni'], properties: { kategoria: { type: 'string', enum: ['zainteresowany', 'nie_teraz', 'odmowa', 'autoresponder'] }, streszczenie: { type: 'string' }, powrot_dni: { type: 'integer' } } };\nreturn [{ json: { zapytanie: { model: 'gpt-5.5', reasoning: { effort: 'low' }, input: [{ role: 'system', content: instrukcja }, { role: 'user', content: JSON.stringify(dane) }], text: { format: { type: 'json_schema', name: 'klasyfikacja', strict: true, schema: schemat } } } } }];"
+      },
+      "id": "49dc2225-d61a-44a2-a4aa-3fd14e921803",
+      "name": "Przygotuj ocenę odpowiedzi",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2464,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\nreturn [{ json: { firma: d.firma, wiadomosc: d.wiadomosc, email: String(d.firma.email || d.wiadomosc.zly_adres).toLowerCase() } }];"
+      },
+      "id": "7cc15bab-01f1-4c28-8088-0c5727523cd9",
+      "name": "Przygotuj obsługę zwrotu",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2464,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_odpowiedzi",
+          "cachedResultName": "cm_odpowiedzi"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "message_id": "={{ $json.wiadomosc.message_id }}",
+            "thread_id": "={{ $json.wiadomosc.thread_id }}",
+            "nadawca": "={{ $json.wiadomosc.adres }}",
+            "kategoria": "={{ $json.wiadomosc.bounce ? 'zwrot_inny' : 'niezwiazana' }}",
+            "streszczenie": "={{ String($json.wiadomosc.temat).slice(0, 200) }}",
+            "data": "={{ $now.toISO() }}"
+          },
+          "schema": [
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "thread_id",
+              "displayName": "thread_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "nadawca",
+              "displayName": "nadawca",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "kategoria",
+              "displayName": "kategoria",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "streszczenie",
+              "displayName": "streszczenie",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "data",
+              "displayName": "data",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3b5a17a5-5bb4-4a6c-8994-e4d4611e414b",
+      "name": "Zapisz jako obsłużoną (niezwiązana)",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2464,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.zapytanie }}",
+        "options": {
+          "timeout": 90000
+        }
+      },
+      "id": "6b9e2ec6-36cb-4c66-be50-3ae4a3abce35",
+      "name": "AI: oceń odpowiedź",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2688,
+        192
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $('Dopasuj do firmy').first().json;\nlet tekst = '';\n(($input.first().json.output) || []).forEach(function (o) { if (o.type === 'message') (o.content || []).forEach(function (c) { if (c.type === 'output_text') tekst = c.text; }); });\nif (!tekst) throw new Error('AI nie oceniło odpowiedzi');\nconst k = JSON.parse(tekst);\nconst f = d.firma;\nconst teraz = $now.setZone('Europe/Warsaw');\nlet status = f.status, dataNast = f.data_nastepnego || null;\nif (k.kategoria === 'zainteresowany') { status = 'zainteresowany'; dataNast = null; }\nif (k.kategoria === 'nie_teraz') { status = 'nie_teraz'; dataNast = teraz.plus({ days: 75 }).set({ hour: 8, minute: 10 }).toISO(); }\nif (k.kategoria === 'odmowa') { status = 'odmowa'; dataNast = null; }\nif (k.kategoria === 'autoresponder' && f.status === 'wyslana') { dataNast = teraz.plus({ days: Math.max(5, (k.powrot_dni || 0) + 1) }).set({ hour: 8, minute: 20 }).toISO(); }\nconst publiczna = /^(gmail|googlemail|wp|o2|onet|op|interia|vp|tlen|outlook|hotmail|live|icloud|yahoo|gazeta|int|buziaczek|go2)\\.(pl|com|eu)$|^poczta\\.(onet|fm)\\.pl$/i.test(d.wiadomosc.domena);\nreturn [{ json: { kategoria: k.kategoria, streszczenie: k.streszczenie, firma: f, wiadomosc: d.wiadomosc, aktualizacja: { status: status, kategoria_odpowiedzi: k.kategoria, data_nastepnego: dataNast }, blokuj: k.kategoria === 'odmowa' ? [String(f.email || d.wiadomosc.adres).toLowerCase()].concat(publiczna || !d.wiadomosc.domena ? [] : [d.wiadomosc.domena]) : [] } }];"
+      },
+      "id": "634e44af-faf9-4c18-aeb3-35e2c6f854d9",
+      "name": "Zaplanuj reakcję",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2912,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{ $json.firma.id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "={{ $json.aktualizacja.status }}",
+            "kategoria_odpowiedzi": "={{ $json.aktualizacja.kategoria_odpowiedzi }}",
+            "data_nastepnego": "={{ $json.aktualizacja.data_nastepnego }}"
+          },
+          "schema": [
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "kategoria_odpowiedzi",
+              "displayName": "kategoria_odpowiedzi",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "data_nastepnego",
+              "displayName": "data_nastepnego",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d85313d6-488d-4680-a009-bb9b761ff458",
+      "name": "Zaktualizuj firmę po odpowiedzi",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3136,
+        192
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_odpowiedzi",
+          "cachedResultName": "cm_odpowiedzi"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "message_id": "={{ $('Zaplanuj reakcję').first().json.wiadomosc.message_id }}",
+            "thread_id": "={{ $('Zaplanuj reakcję').first().json.wiadomosc.thread_id }}",
+            "firma_id": "={{ $('Zaplanuj reakcję').first().json.firma.id }}",
+            "nadawca": "={{ $('Zaplanuj reakcję').first().json.wiadomosc.adres }}",
+            "kategoria": "={{ $('Zaplanuj reakcję').first().json.kategoria }}",
+            "streszczenie": "={{ $('Zaplanuj reakcję').first().json.streszczenie }}",
+            "data": "={{ $now.toISO() }}"
+          },
+          "schema": [
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "thread_id",
+              "displayName": "thread_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "firma_id",
+              "displayName": "firma_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "nadawca",
+              "displayName": "nadawca",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "kategoria",
+              "displayName": "kategoria",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "streszczenie",
+              "displayName": "streszczenie",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "data",
+              "displayName": "data",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "93cf72ce-383f-4a3d-ac98-64d2335dcc5f",
+      "name": "Zapisz odpowiedź",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3360,
+        192
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Zaplanuj reakcję').first().json.kategoria }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "zainteresowany"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Zaplanuj reakcję').first().json.kategoria }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "odmowa"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Zaplanuj reakcję').first().json.kategoria }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "nie_teraz"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a2ef823d-c4c7-462c-b4ee-bc68c614ad0c",
+      "name": "Jaka odpowiedź?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        3584,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_research",
+          "cachedResultName": "cm_research"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "firma_id",
+              "keyValue": "={{ $('Zaplanuj reakcję').first().json.firma.id }}"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "id": "acdf6999-244c-4531-b72e-8ef62dba8b4f",
+      "name": "Pobierz research firmy",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3808,
+        0
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $('Zaplanuj reakcję').first().json;\nreturn p.blokuj.filter(Boolean).map(function (w) { return { json: { wartosc: w, typ: w.indexOf('@') === -1 ? 'domena' : 'email', powod: 'odmowa: ' + String(p.streszczenie).slice(0, 150), data: $now.toISO() } }; });"
+      },
+      "id": "76d743ce-ebbe-4fa6-b08f-ec87f8337d38",
+      "name": "Adresy na czarną listę",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3808,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $('Zaplanuj reakcję').first().json;\nconst ikona = p.kategoria === 'odmowa' ? '🚫 Odmowa' : '⏳ Nie teraz';\nconst dopisek = p.kategoria === 'odmowa' ? 'Adres trafił na czarną listę, system już tam nie napisze.' : 'System odezwie się sam za ok. 2,5 miesiąca.';\nreturn [{ json: { tekst: ikona + ': ' + p.firma.nazwa + ' (' + p.firma.miasto + ')\\n' + p.streszczenie + '\\n' + dopisek } }];"
+      },
+      "id": "5c458403-931b-4e4d-983e-42267cbbbaf5",
+      "name": "Wiadomość: odmowa lub później",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4256,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $('Zaplanuj reakcję').first().json;\nconst r = $input.first().json || {};\nlet dane = {};\ntry { dane = typeof r.dane === 'string' ? JSON.parse(r.dane) : (r.dane || {}); } catch (e) { dane = {}; }\nconst instrukcja = [\n  'Piszesz w imieniu Phillipa Mrozika (MrozikDigital) odpowiedź do firmy, która zainteresowała się propozycją automatyzacji AI. Phillip sprawdzi ten szkic i sam go wyśle.',\n  'Najpierw krótko i konkretnie odnieś się do tego, co firma napisała (jeśli zadała pytanie, odpowiedz na nie; o cenę: napisz, że zależy od zakresu, a dzięki budowaniu portfolio będzie wyraźnie niżej niż standardowo, i że podasz konkretną kwotę po krótkiej rozmowie - bez wymyślania liczb).',\n  'Potem MINI-ANALIZA dla tej firmy: 3 konkretne pomysły na automatyzacje, każdy w formie: tytuł, 1-2 proste zdania jak to działa, co firma zyska (czas, klienci lub pieniądze). Oprzyj się na danych z researchu i na tym, co firma napisała. Nie wymyślaj faktów o firmie. Nigdy nie proponuj strony internetowej, SEO ani marketingu.',\n  'Na końcu zaproponuj krótką rozmowę (15 minut, telefon lub online) i zapytaj, kiedy im pasuje. Bez linku do kalendarza.',\n  'Język: polski, per Państwo, bardzo prosty, bez słów technicznych (workflow, integracja, API, n8n, CRM, chatbot), bez wykrzykników i emotikon, bez długich myślników. Bez podpisu (zostanie dodany).'\n].join('\\n');\nconst wejscie = { odpowiedz_firmy: p.wiadomosc.tresc, firma: { nazwa: p.firma.nazwa, branza: p.firma.branza, miasto: p.firma.miasto }, nasz_pierwszy_mail: String(p.firma.tresc || '').slice(0, 1500), pomysl_glowny: p.firma.pomysl_glowny, pomysl_ekstra: p.firma.pomysl_ekstra, research: JSON.stringify(dane).slice(0, 9000) };\nconst schemat = { type: 'object', additionalProperties: false, required: ['tresc', 'pomysly_krotko'], properties: { tresc: { type: 'string' }, pomysly_krotko: { type: 'array', items: { type: 'string' } } } };\nreturn [{ json: { zapytanie: { model: 'gpt-5.5', reasoning: { effort: 'medium' }, input: [{ role: 'system', content: instrukcja }, { role: 'user', content: JSON.stringify(wejscie) }], text: { format: { type: 'json_schema', name: 'mini_analiza', strict: true, schema: schemat } } } } }];"
+      },
+      "id": "1796b235-c6d6-410e-b1ad-33d478384223",
+      "name": "Przygotuj mini-analizę",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4032,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.zapytanie }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "aae8109b-e020-432f-a971-61bf234dfeb7",
+      "name": "AI: mini-analiza i szkic odpowiedzi",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        4256,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const utf8 = function (s) { const o = []; for (let i = 0; i < s.length; i++) { let c = s.charCodeAt(i); if (c < 128) o.push(c); else if (c < 2048) o.push(192 | (c >> 6), 128 | (c & 63)); else if (c >= 55296 && c < 56320) { const c2 = s.charCodeAt(++i); const cp = 65536 + ((c - 55296) << 10) + (c2 - 56320); o.push(240 | (cp >> 18), 128 | ((cp >> 12) & 63), 128 | ((cp >> 6) & 63), 128 | (cp & 63)); } else o.push(224 | (c >> 12), 128 | ((c >> 6) & 63), 128 | (c & 63)); } return o; };\nconst b64 = function (b) { const T = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'; let o = ''; for (let i = 0; i < b.length; i += 3) { const x = b[i], y = b[i + 1], z = b[i + 2]; o += T[x >> 2] + T[((x & 3) << 4) | ((y === undefined ? 0 : y) >> 4)] + (y === undefined ? '=' : T[((y & 15) << 2) | ((z === undefined ? 0 : z) >> 6)]) + (z === undefined ? '=' : T[z & 63]); } return o; };\nconst ascii = function (s) { const o = []; for (let i = 0; i < s.length; i++) o.push(s.charCodeAt(i) & 255); return o; };\nconst zbudujMime = function (do_, temat, tresc, odpowiedzNa) {\n  const linie = ['From: Phillip Mrozik <mrozikdigital@gmail.com>', 'To: ' + do_, 'Subject: =?UTF-8?B?' + b64(utf8(temat)) + '?=', 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=\"UTF-8\"', 'Content-Transfer-Encoding: base64'];\n  if (odpowiedzNa) { linie.push('In-Reply-To: ' + odpowiedzNa); linie.push('References: ' + odpowiedzNa); }\n  const cialo = b64(utf8(tresc)).replace(/(.{76})/g, '$1\\r\\n');\n  return b64(ascii(linie.join('\\r\\n') + '\\r\\n\\r\\n' + cialo)).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');\n};\nconst p = $('Zaplanuj reakcję').first().json;\nlet t = '';\n((($input.first().json) || {}).output || []).forEach(function (o) { if (o.type === 'message') (o.content || []).forEach(function (c) { if (c.type === 'output_text') t = c.text; }); });\nlet wynik = { tresc: '', pomysly_krotko: [] };\ntry { wynik = JSON.parse(t); } catch (e) {}\nlet tresc = String(wynik.tresc || '').trim().replace(/\\n*(pozdrawiam|z pozdrowieniami)[\\s\\S]*$/i, '').trim().replace(/ — /g, ', ');\nconst awaria = !tresc;\nif (awaria) tresc = 'Dzień dobry,\\n\\ndziękuję za odpowiedź. Chętnie przygotuję krótką analizę z konkretnymi pomysłami dla Państwa firmy. Czy pasowałaby krótka, 15-minutowa rozmowa w tym tygodniu?';\ntresc += '\\n\\nPozdrawiam\\nPhillip Mrozik\\nMrozikDigital | 787 957 534\\nhttps://www.mrozikdigital.com';\nconst temat = /^re:/i.test(p.wiadomosc.temat) ? p.wiadomosc.temat : 'Re: ' + (p.wiadomosc.temat || 'Propozycja współpracy');\nreturn [{ json: { awaria: awaria, pomysly: wynik.pomysly_krotko || [], tresc: tresc, cialo: { message: { raw: zbudujMime(p.wiadomosc.od || p.wiadomosc.adres, temat, tresc, p.wiadomosc.rfc_id), threadId: p.wiadomosc.thread_id } } } }];"
+      },
+      "id": "d481920d-4de3-4bd6-8e79-4863e36d2c8f",
+      "name": "Złóż szkic odpowiedzi",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/drafts",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.cialo }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "37f11614-076d-44d4-99d7-f98c5b5ecc5c",
+      "name": "Gmail: utwórz szkic odpowiedzi",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        4704,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "mrozikdigital"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $('Zaplanuj reakcję').first().json;\nconst s = $('Złóż szkic odpowiedzi').first().json;\nconst okSzkic = !!($input.first().json || {}).id;\nconst linie = [\n  '🔥 Firma zainteresowana!',\n  p.firma.nazwa + ' (' + p.firma.branza + ', ' + p.firma.miasto + ')',\n  'Od: ' + p.wiadomosc.adres + (p.firma.telefon ? ' | tel. ' + p.firma.telefon : ''),\n  '',\n  'Napisali: ' + p.streszczenie,\n  '',\n  okSzkic ? '✍️ Szkic odpowiedzi z mini-analizą czeka w Gmailu (Wersje robocze) w tym samym wątku. Sprawdź i wyślij.' : '⚠️ Nie udało się utworzyć szkicu w Gmailu, odpisz ręcznie.'\n];\nif (s.pomysly && s.pomysly.length) linie.push('', 'Pomysły w analizie:', s.pomysly.map(function (x) { return '• ' + x; }).join('\\n'));\nlinie.push('', 'https://mail.google.com/mail/u/0/#inbox/' + p.wiadomosc.thread_id);\nreturn [{ json: { tekst: linie.join('\\n') } }];"
+      },
+      "id": "e0a93a28-cbcd-4e4f-8dac-467e5f517dc9",
+      "name": "Wiadomość: firma zainteresowana",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4928,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "TWOJ_TELEGRAM_CHAT_ID",
+        "text": "={{ String($json.tekst).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "bae7b133-7f13-41f4-ad24-35d1fc1ff2c0",
+      "name": "Telegram: firma zainteresowana",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        5152,
+        0
+      ],
+      "webhookId": "27a8afee-1447-48f7-936d-1487ab544ef5",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Pain Radar Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_czarna_lista",
+          "cachedResultName": "cm_czarna_lista"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "wartosc": "={{ $json.wartosc }}",
+            "typ": "={{ $json.typ }}",
+            "powod": "={{ $json.powod }}",
+            "data": "={{ $json.data }}"
+          },
+          "schema": [
+            {
+              "id": "wartosc",
+              "displayName": "wartosc",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "typ",
+              "displayName": "typ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "powod",
+              "displayName": "powod",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "data",
+              "displayName": "data",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c1b9af33-621d-44ac-a65f-b67c46757499",
+      "name": "Dodaj do czarnej listy",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        4032,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "TWOJ_TELEGRAM_CHAT_ID",
+        "text": "={{ String($json.tekst).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "f8d18280-d1ad-4fb6-937b-184a430d8be9",
+      "name": "Telegram: odmowa lub później",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        4480,
+        256
+      ],
+      "webhookId": "acbbf074-274f-4d23-9d0f-a154e19ba524",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Pain Radar Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{ $json.firma.id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "zly_mail",
+            "powod": "mail wrócił jako niedostarczony",
+            "data_nastepnego": null
+          },
+          "schema": [
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "powod",
+              "displayName": "powod",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "data_nastepnego",
+              "displayName": "data_nastepnego",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "61802d16-ac88-46b9-ab73-8b6ac06f900d",
+      "name": "Oznacz zły adres",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2688,
+        512
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_czarna_lista",
+          "cachedResultName": "cm_czarna_lista"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "wartosc": "={{ $('Przygotuj obsługę zwrotu').first().json.email }}",
+            "typ": "email",
+            "powod": "adres nie istnieje (zwrot)",
+            "data": "={{ $now.toISO() }}"
+          },
+          "schema": [
+            {
+              "id": "wartosc",
+              "displayName": "wartosc",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "typ",
+              "displayName": "typ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "powod",
+              "displayName": "powod",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "data",
+              "displayName": "data",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6ad86bc7-6319-4e65-8bcd-6ebba426d7fd",
+      "name": "Zły adres na czarną listę",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2912,
+        512
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_wysylki",
+          "cachedResultName": "cm_wysylki"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "firma_id",
+              "keyValue": "={{ $('Przygotuj obsługę zwrotu').first().json.firma.id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "odbity"
+          },
+          "schema": [
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a45ef90a-56dd-4530-b28c-73237bbcd59d",
+      "name": "Oznacz wysyłkę jako odbitą",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3136,
+        512
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_odpowiedzi",
+          "cachedResultName": "cm_odpowiedzi"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "message_id": "={{ $('Przygotuj obsługę zwrotu').first().json.wiadomosc.message_id }}",
+            "thread_id": "={{ $('Przygotuj obsługę zwrotu').first().json.wiadomosc.thread_id }}",
+            "firma_id": "={{ $('Przygotuj obsługę zwrotu').first().json.firma.id }}",
+            "nadawca": "={{ $('Przygotuj obsługę zwrotu').first().json.wiadomosc.adres }}",
+            "kategoria": "zwrot",
+            "streszczenie": "={{ 'Niedostarczony mail do ' + $('Przygotuj obsługę zwrotu').first().json.email }}",
+            "data": "={{ $now.toISO() }}"
+          },
+          "schema": [
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "thread_id",
+              "displayName": "thread_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "firma_id",
+              "displayName": "firma_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "nadawca",
+              "displayName": "nadawca",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "kategoria",
+              "displayName": "kategoria",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "streszczenie",
+              "displayName": "streszczenie",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "data",
+              "displayName": "data",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "accbe683-2e79-4013-bffd-24ae614c3a9d",
+      "name": "Zapisz zwrot",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3360,
+        512
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_wysylki",
+          "cachedResultName": "cm_wysylki"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "typ",
+              "keyValue": "pierwszy"
+            }
+          ]
+        },
+        "limit": 40,
+        "orderBy": true,
+        "orderByColumn": "id"
+      },
+      "id": "7961b2ca-d343-4c43-9537-f9b5677791cc",
+      "name": "Ostatnie 40 wysyłek",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3584,
+        512
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const w = $input.all().map(function (i) { return i.json; }).filter(function (x) { return x && x.id; });\nconst odbite = w.filter(function (x) { return x.status === 'odbity'; }).length;\nif (odbite < 4) return [];\nreturn [{ json: { odbite: odbite, razem: w.length, tekst: '🛑 Wysyłka zatrzymana automatycznie.\\n' + odbite + ' z ostatnich ' + w.length + ' maili wróciło jako niedostarczone. To może zaszkodzić reputacji skrzynki.\\nSprawdź adresy, a potem wznów system w panelu (Stan systemu i sterowanie).' } }];"
+      },
+      "id": "9deedfa0-8649-4adf-98bb-c5f92fd209d9",
+      "name": "Za dużo zwrotów?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3808,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_ustawienia",
+          "cachedResultName": "cm_ustawienia"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "klucz",
+              "keyValue": "system_wstrzymany"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "wartosc": "tak"
+          },
+          "schema": [
+            {
+              "id": "wartosc",
+              "displayName": "wartosc",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9451a707-dccc-411d-b560-681489fca37d",
+      "name": "Wstrzymaj system",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        4032,
+        512
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { tekst: $('Za dużo zwrotów?').first().json.tekst } }];"
+      },
+      "id": "e1e276d9-873f-4e90-9cdd-86ada52d9f93",
+      "name": "Treść alarmu",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4256,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "TWOJ_TELEGRAM_CHAT_ID",
+        "text": "={{ String($json.tekst).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "▶️ Włącz z powrotem",
+                    "additionalFields": {
+                      "url": "https://TWOJA-INSTANCJA.app.n8n.cloud/webhook/cold-mail-sterowanie?akcja=start&klucz=TWOJ_KLUCZ_STEROWANIA"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "e2dd2a88-b97b-4cbd-85f1-cd8644eebd48",
+      "name": "Telegram: system zatrzymany",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        4480,
+        512
+      ],
+      "webhookId": "fe761271-1093-460c-af4f-9d4c9918a7d0",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Pain Radar Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 18 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "ddd6c6c7-981e-474c-a93b-b85fe50134bb",
+      "name": "Pn–pt 18:00: raport dnia",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        928
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_wysylki",
+          "cachedResultName": "cm_wysylki"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "data",
+              "condition": "gte",
+              "keyValue": "={{ $today.toISO() }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "id": "99c22c5e-7430-473c-b3cd-7891414361f9",
+      "name": "Raport: dzisiejsze wysyłki",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        1024
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {},
+      "id": "4fcc539b-1789-41fe-8bb2-e0f81f8388f9",
+      "name": "Raport ręcznie",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_odpowiedzi",
+          "cachedResultName": "cm_odpowiedzi"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "data",
+              "condition": "gte",
+              "keyValue": "={{ $today.toISO() }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "id": "3cb404ef-45b8-44d2-a371-8a6e7dc56e00",
+      "name": "Raport: dzisiejsze odpowiedzi",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        1024
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "status",
+              "keyValue": "gotowa"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "id": "67ef0cef-67f2-4d7d-99e9-421c2fe7b677",
+      "name": "Raport: gotowe maile",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        1024
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_firmy",
+          "cachedResultName": "cm_firmy"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "updatedAt",
+              "condition": "gte",
+              "keyValue": "={{ $today.minus({ days: 1 }).set({ hour: 15 }).toISO() }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "id": "c5f9e246-209a-4043-a452-6608751486a0",
+      "name": "Raport: firmy przebadane dziś",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        1024
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_kampanie",
+          "cachedResultName": "cm_kampanie"
+        },
+        "returnAll": true
+      },
+      "id": "87ae8386-6aa6-423e-be93-8151e448a5d2",
+      "name": "Raport: kampanie",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1120,
+        1024
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_ustawienia",
+          "cachedResultName": "cm_ustawienia"
+        },
+        "returnAll": true
+      },
+      "id": "223dc186-092c-4c61-b689-2acc59654128",
+      "name": "Raport: ustawienia",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1344,
+        1024
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "url": "https://api.firecrawl.dev/v2/team/credit-usage",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "firecrawlApi",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "69f16b6e-40d0-4bcf-857a-004797d6896e",
+      "name": "Firecrawl: stan kredytów",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1568,
+        1024
+      ],
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "firecrawlApi": {
+          "id": "",
+          "name": "firecrawl"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = function (n) { return $(n).all().map(function (i) { return i.json; }).filter(function (x) { return x && x.id; }); };\nconst ust = {}; r('Raport: ustawienia').forEach(function (u) { ust[u.klucz] = u.wartosc; });\nconst w = r('Raport: dzisiejsze wysyłki');\nconst o = r('Raport: dzisiejsze odpowiedzi').filter(function (x) { return x.kategoria !== 'niezwiazana' && x.kategoria !== 'zwrot_inny'; });\nconst licz = function (arr, pole, war) { return arr.filter(function (x) { return x[pole] === war; }).length; };\nconst nowe = r('Raport: firmy przebadane dziś');\nconst kamp = r('Raport: kampanie').filter(function (k) { return k.status === 'aktywna'; });\nconst fc = $('Firecrawl: stan kredytów').first().json || {};\nconst kredyty = ((fc.data || {}).remainingCredits);\nconst gotowe = r('Raport: gotowe maile').length;\nconst linie = [\n  '📊 Raport dnia ' + $now.setZone('Europe/Warsaw').toFormat('dd.MM.yyyy') + (ust.tryb_testowy !== 'nie' ? ' (TRYB TESTOWY)' : ''),\n  '',\n  '📤 Wysłane: ' + w.filter(function (x) { return x.status !== 'odbity'; }).length + ' (pierwsze: ' + licz(w, 'typ', 'pierwszy') + ', follow-upy: ' + (licz(w, 'typ', 'followup1') + licz(w, 'typ', 'followup2') + licz(w, 'typ', 'powrot')) + ')',\n  '↩️ Zwroty: ' + licz(w, 'status', 'odbity'),\n  '💬 Odpowiedzi: ' + o.length + ' (zainteresowani: ' + licz(o, 'kategoria', 'zainteresowany') + ', nie teraz: ' + licz(o, 'kategoria', 'nie_teraz') + ', odmowy: ' + licz(o, 'kategoria', 'odmowa') + ', automaty: ' + licz(o, 'kategoria', 'autoresponder') + ')',\n  '',\n  '🔎 Research od wczoraj: gotowe ' + licz(nowe, 'status', 'gotowa') + ', odrzucone ' + licz(nowe, 'status', 'odrzucona'),\n  '📦 Gotowe maile w kolejce: ' + gotowe + ' (na ok. ' + Math.floor(gotowe / Math.max(1, parseInt(ust.limit_dzienny || '30', 10))) + ' dni)',\n  '🎯 Aktywne kampanie: ' + (kamp.length ? kamp.map(function (k) { return k.branza + ' – ' + k.miasto; }).join(', ') : 'brak, dodaj nową w panelu'),\n  '🔥 Firecrawl: ' + (typeof kredyty === 'number' ? kredyty + ' kredytów' : 'nie udało się sprawdzić'),\n  ust.system_wstrzymany === 'tak' ? '\\n⏸️ System jest WSTRZYMANY.' : ''\n];\nreturn [{ json: { tekst: linie.join('\\n').trim() } }];"
+      },
+      "id": "82e3d897-2c0e-4614-b79c-91f062dedff8",
+      "name": "Złóż raport dnia",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        1024
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "TWOJ_TELEGRAM_CHAT_ID",
+        "text": "={{ String($json.tekst).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "b5c07c9c-eda0-4007-86cd-7891cdc61491",
+      "name": "Telegram: raport dnia",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2016,
+        1024
+      ],
+      "webhookId": "126c2c83-ddff-4a77-8154-ea0af8665ed5",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Pain Radar Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 19 * * 0"
+            }
+          ]
+        }
+      },
+      "id": "4c0e0049-5331-4d3f-91c9-e098fc090dfe",
+      "name": "Niedziela 19:00: wnioski z tygodnia",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        1344
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_wysylki",
+          "cachedResultName": "cm_wysylki"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "typ",
+              "keyValue": "pierwszy"
+            },
+            {
+              "keyName": "data",
+              "condition": "gte",
+              "keyValue": "={{ $now.minus({ days: 30 }).toISO() }}"
+            }
+          ]
+        },
+        "limit": 150,
+        "orderBy": true,
+        "orderByColumn": "id"
+      },
+      "id": "ff757a73-00be-40cb-9d66-60e2cf3476eb",
+      "name": "Pierwsze maile z 30 dni",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        1440
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {},
+      "id": "8a1e51dc-f429-4dc6-8d5e-def333f433ed",
+      "name": "Wnioski ręcznie",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1536
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_odpowiedzi",
+          "cachedResultName": "cm_odpowiedzi"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "data",
+              "condition": "gte",
+              "keyValue": "={{ $now.minus({ days: 30 }).toISO() }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "id": "6eac1ea9-8e81-41c2-b042-214b09a8cb62",
+      "name": "Odpowiedzi z 30 dni",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        1440
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_ustawienia",
+          "cachedResultName": "cm_ustawienia"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "klucz",
+              "keyValue": "wnioski_stylu"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "id": "4c42d014-84ad-4b7d-bff0-4a1a5ab9f783",
+      "name": "Obecne wnioski",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        1440
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = function (n) { return $(n).all().map(function (i) { return i.json; }).filter(function (x) { return x && x.id; }); };\nconst maile = r('Pierwsze maile z 30 dni').filter(function (m) { return !m.tryb_testowy; });\nconst odp = r('Odpowiedzi z 30 dni');\nif (maile.length < 15) return [{ json: { pomin: true, tekst: '🧠 Wnioski tygodnia: za mało prawdziwych wysyłek (' + maile.length + '), żeby wyciągać wnioski. Spróbuję za tydzień.' } }];\nconst kat = {}; odp.forEach(function (o) { if (o.firma_id) kat[o.firma_id] = o.kategoria; });\nconst proba = maile.map(function (m) { return { wynik: kat[m.firma_id] || 'brak_odpowiedzi', tresc: String(m.tresc || '').replace(/Pozdrawiam[\\s\\S]*$/, '').slice(0, 900) }; });\nconst dobre = proba.filter(function (p) { return p.wynik === 'zainteresowany'; }).slice(0, 15);\nconst zle = proba.filter(function (p) { return p.wynik === 'odmowa'; }).slice(0, 10);\nconst cisza = proba.filter(function (p) { return p.wynik === 'brak_odpowiedzi'; }).slice(0, 15);\nconst instrukcja = [\n  'Analizujesz skuteczność cold maili Phillipa Mrozika (propozycje automatyzacji AI dla polskich firm). Dostajesz maile, na które firmy odpowiedziały z zainteresowaniem, odmówiły albo nie odpowiedziały.',\n  'Napisz zwięzłe wnioski dla autora kolejnych maili: maksymalnie 6 krótkich punktów, łącznie do 700 znaków. Tylko rzeczy poparte danymi (np. jakie tematy, otwarcia, długość, ton działały lepiej). Jeśli danych jest mało, napisz mniej punktów.',\n  'Wnioski NIE mogą łamać stałych zasad: temat Propozycja współpracy, prosty język, wyrażenie automatyzacja AI dokładnie raz, zdanie o niższej cenie przez portfolio, pytanie o darmową analizę, link do realizacji, zakaz proponowania stron internetowych, zakaz wymyślania faktów.',\n  'Dodaj też podsumowanie_dla_phillipa: 2-4 proste zdania po polsku, co działa, a co nie.'\n].join('\\n');\nconst dane = { liczby: { wyslane: maile.length, zainteresowani: dobre.length, odmowy: proba.filter(function (p) { return p.wynik === 'odmowa'; }).length, bez_odpowiedzi: proba.filter(function (p) { return p.wynik === 'brak_odpowiedzi'; }).length }, obecne_wnioski: ($('Obecne wnioski').first().json || {}).wartosc || '', zainteresowani: dobre, odmowy: zle, bez_odpowiedzi: cisza };\nconst schemat = { type: 'object', additionalProperties: false, required: ['wnioski', 'podsumowanie_dla_phillipa'], properties: { wnioski: { type: 'string' }, podsumowanie_dla_phillipa: { type: 'string' } } };\nreturn [{ json: { pomin: false, liczby: dane.liczby, zapytanie: { model: 'gpt-5.5', reasoning: { effort: 'medium' }, input: [{ role: 'system', content: instrukcja }, { role: 'user', content: JSON.stringify(dane) }], text: { format: { type: 'json_schema', name: 'wnioski', strict: true, schema: schemat } } } } }];"
+      },
+      "id": "fbb73699-6a65-435d-aac6-305cdc58f6ef",
+      "name": "Przygotuj analizę tygodnia",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        1440
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.pomin }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "97212e27-cae5-4db3-88e4-70e880afdbdf",
+      "name": "Jest z czego się uczyć?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1120,
+        1440
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.zapytanie }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "ad10e30f-8a75-4458-888f-713c78609cf3",
+      "name": "AI: wnioski z tygodnia",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1344,
+        1344
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "let t = '';\n(($input.first().json.output) || []).forEach(function (o) { if (o.type === 'message') (o.content || []).forEach(function (c) { if (c.type === 'output_text') t = c.text; }); });\nconst w = JSON.parse(t);\nconst l = $('Przygotuj analizę tygodnia').first().json.liczby;\nconst wnioski = String(w.wnioski || '').replace(/(stron[aęy] internetow|witryn|\\bSEO\\b)[^\\n.]*[.\\n]?/gi, '').slice(0, 900);\nreturn [{ json: { wnioski: wnioski, tekst: '🧠 Wnioski z ostatnich 30 dni\\nWysłane: ' + l.wyslane + ' | zainteresowani: ' + l.zainteresowani + ' | odmowy: ' + l.odmowy + ' | cisza: ' + l.bez_odpowiedzi + '\\n\\n' + w.podsumowanie_dla_phillipa + '\\n\\nNowe wskazówki dla pisania maili:\\n' + wnioski } }];"
+      },
+      "id": "3e8133e2-2fb5-4269-8c47-2b22232dc14a",
+      "name": "Odczytaj wnioski",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        1344
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_ustawienia",
+          "cachedResultName": "cm_ustawienia"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "klucz",
+              "keyValue": "wnioski_stylu"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "wartosc": "={{ $json.wnioski }}"
+          },
+          "schema": [
+            {
+              "id": "wartosc",
+              "displayName": "wartosc",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b6162000-32c1-4f8a-8965-caceab227c69",
+      "name": "Zapisz wnioski",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1792,
+        1344
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { tekst: $('Odczytaj wnioski').first().json.tekst } }];"
+      },
+      "id": "e2cce575-0338-4dd0-b939-325657d249da",
+      "name": "Treść wniosków",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        1344
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "TWOJ_TELEGRAM_CHAT_ID",
+        "text": "={{ String($json.tekst).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "7a2dbe34-b21b-4fa3-b240-ca68dc3319bd",
+      "name": "Telegram: wnioski tygodnia",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2240,
+        1344
+      ],
+      "webhookId": "f9838492-02dc-49d7-89c8-72cf149852b8",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Pain Radar Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "TWOJ_TELEGRAM_CHAT_ID",
+        "text": "={{ String($json.tekst).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "8bef4ce5-0966-4a1e-b8e9-85cef2816884",
+      "name": "Telegram: za mało danych",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1344,
+        1536
+      ],
+      "webhookId": "5a8e9fbd-227a-48b6-84a5-1fff7c57434a",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Pain Radar Bot"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "f5d84102-f70c-488f-980e-a562a499d5d5",
+      "name": "Gdy wystąpi błąd",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1760
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const esc = function (t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };\nconst ocen = function (opis, nazwaNode) {\n  const m = String(opis || '').toLowerCase();\n  const n = String(nazwaNode || '').toLowerCase();\n  let usluga = 'jedną z usług';\n  if (n.indexOf('gmail') !== -1) usluga = 'Gmailem';\n  else if (n.indexOf('ai:') !== -1 || m.indexOf('openai') !== -1) usluga = 'OpenAI';\n  else if (n.indexOf('google') !== -1) usluga = 'Google Maps';\n  else if (n.indexOf('firecrawl') !== -1) usluga = 'Firecrawlem';\n  else if (n.indexOf('telegram') !== -1) usluga = 'Telegramem';\n  else if (/pobierz|zapisz|oznacz|zaktualizuj|usu|firma z|ostatnie|dzisiejsze|gotowe|follow|powroty|raport|odpowiedzi|już obsłużone/.test(n)) usluga = 'bazą danych n8n';\n  if (/\\b(401|403)\\b|unauthori|forbidden|invalid_grant|invalid.{0,20}(credential|token|api.?key)|credentials? (are|is) (invalid|wrong)|permission|token has been expired|revoked/.test(m)) {\n    return { powazny: true, klucz: 'auth:' + usluga, co: 'Przestało działać połączenie z ' + usluga + ' (wygasło logowanie albo klucz).', rada: 'Wejdź w n8n → Credentials i połącz to konto ponownie. Dopóki tego nie zrobisz, odpowiedzi firm nie są rozpoznawane, więc sprawdzaj skrzynkę ręcznie.' };\n  }\n  if (/insufficient_quota|billing|credit balance|exceeded your current quota|\\b402\\b|payment required|daily sending quota|daily user sending limit|user-rate limit exceeded/.test(m)) {\n    return { powazny: true, klucz: 'limit:' + usluga, co: 'Skończyły się środki albo limit na koncie (' + usluga + ').', rada: 'Doładuj konto albo zwiększ limit w tej usłudze. Do tego czasu sprawdzaj skrzynkę ręcznie.' };\n  }\n  if (/timeout|timed out|etimedout|econnreset|econnrefused|enotfound|socket hang up|\\b50[0234]\\b|unavailable|bad gateway|overloaded|\\b429\\b|rate.?limit|too many requests/.test(m)) {\n    return { powazny: false, klucz: 'chwilowy:' + usluga, co: 'Połączenie z ' + usluga + ' ciągle nie działa (serwis nie odpowiada albo jest przeciążony).', rada: 'Zwykle przechodzi samo, żadna odpowiedź nie przepadnie, bo zostanie sprawdzona później.' };\n  }\n  return { powazny: false, klucz: 'inny:' + n, co: 'Ten sam błąd powtarza się w kroku „' + nazwaNode + '”.', rada: 'Pojedyncze przypadki system pomija sam. Skoro się powtarza, warto rzucić okiem w n8n (lista wykonań tego workflowu).' };\n};\nconst s = $getWorkflowStaticData('global');\nconst teraz = Date.now();\ns.bledy = s.bledy || {};\ns.zgloszone = s.zgloszone || {};\nconst PROG_POWTORZEN = 5;\nconst ex = $input.first().json.execution || {};\nconst blad = ex.error || {};\nconst nazwa = (blad.node || {}).name || ex.lastNodeExecuted || '';\nconst opis = String(blad.message || '') + ' ' + String(blad.description || '') + ' ' + JSON.stringify(blad).slice(0, 2000);\nconst o = ocen(opis, nazwa);\nconst lista = (s.bledy[o.klucz] || []).filter(function (t) { return teraz - t < 3600000; });\nlista.push(teraz);\ns.bledy[o.klucz] = lista;\nObject.keys(s.bledy).forEach(function (k) { s.bledy[k] = s.bledy[k].filter(function (t) { return teraz - t < 3600000; }); if (!s.bledy[k].length) delete s.bledy[k]; });\nif (!o.powazny && lista.length < PROG_POWTORZEN) return [];\nif (s.zgloszone[o.klucz] && teraz - s.zgloszone[o.klucz] < 3 * 3600000) return [];\ns.zgloszone[o.klucz] = teraz;\nconst naglowek = o.powazny ? '🚨 <b>Odpowiedzi i raporty: poważny problem</b>' : '⚠️ <b>Odpowiedzi i raporty: problem się powtarza</b> (' + lista.length + 'x w ostatniej godzinie)';\nreturn [{ json: { tekst: naglowek + '\\n\\n<b>Co się stało:</b> ' + esc(o.co) + '\\n<b>Co zrobić:</b> ' + esc(o.rada) + '\\n\\n<i>Szczegóły: ' + esc(nazwa) + ' – ' + esc(String(blad.message || '').slice(0, 180)) + '</i>\\n\\nPrzycisk poniżej zatrzymuje cały system (szukanie, research i wysyłkę). Ten sam problem nie będzie zgłaszany częściej niż co 3 godziny.' } }];\n"
+      },
+      "id": "975206b3-6079-4b99-9df6-824ce6ecff57",
+      "name": "Nie spamuj błędami",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        1760
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "TWOJ_TELEGRAM_CHAT_ID",
+        "text": "={{ $json.tekst }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "⏸️ Wyłącz wszystko",
+                    "additionalFields": {
+                      "url": "https://TWOJA-INSTANCJA.app.n8n.cloud/webhook/cold-mail-sterowanie?akcja=stop&klucz=TWOJ_KLUCZ_STEROWANIA"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "7b01db6e-ca05-42ee-9166-51364b939b4b",
+      "name": "Telegram: błąd odpowiedzi",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        448,
+        1760
+      ],
+      "webhookId": "7f48706c-faa4-4515-b758-b2f6828ba51b",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Pain Radar Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Gmail: nowe wiadomości": {
+      "main": [
+        [
+          {
+            "node": "Już obsłużone wiadomości",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sprawdź skrzynkę ręcznie": {
+      "main": [
+        [
+          {
+            "node": "Gmail: nowe wiadomości",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Już obsłużone wiadomości": {
+      "main": [
+        [
+          {
+            "node": "Wybierz nową wiadomość",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wybierz nową wiadomość": {
+      "main": [
+        [
+          {
+            "node": "Gmail: pobierz wiadomość",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: pobierz wiadomość": {
+      "main": [
+        [
+          {
+            "node": "Odczytaj wiadomość",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Odczytaj wiadomość": {
+      "main": [
+        [
+          {
+            "node": "Firma z tego wątku",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Firma z tego wątku": {
+      "main": [
+        [
+          {
+            "node": "Firma z tym adresem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Firma z tym adresem": {
+      "main": [
+        [
+          {
+            "node": "Firma z tej domeny",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Firma z tej domeny": {
+      "main": [
+        [
+          {
+            "node": "Dopasuj do firmy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dopasuj do firmy": {
+      "main": [
+        [
+          {
+            "node": "Co to za wiadomość?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Co to za wiadomość?": {
+      "main": [
+        [
+          {
+            "node": "Przygotuj ocenę odpowiedzi",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Przygotuj obsługę zwrotu",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Zapisz jako obsłużoną (niezwiązana)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Przygotuj ocenę odpowiedzi": {
+      "main": [
+        [
+          {
+            "node": "AI: oceń odpowiedź",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Przygotuj obsługę zwrotu": {
+      "main": [
+        [
+          {
+            "node": "Oznacz zły adres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: oceń odpowiedź": {
+      "main": [
+        [
+          {
+            "node": "Zaplanuj reakcję",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zaplanuj reakcję": {
+      "main": [
+        [
+          {
+            "node": "Zaktualizuj firmę po odpowiedzi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zaktualizuj firmę po odpowiedzi": {
+      "main": [
+        [
+          {
+            "node": "Zapisz odpowiedź",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zapisz odpowiedź": {
+      "main": [
+        [
+          {
+            "node": "Jaka odpowiedź?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jaka odpowiedź?": {
+      "main": [
+        [
+          {
+            "node": "Pobierz research firmy",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Adresy na czarną listę",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wiadomość: odmowa lub później",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pobierz research firmy": {
+      "main": [
+        [
+          {
+            "node": "Przygotuj mini-analizę",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Adresy na czarną listę": {
+      "main": [
+        [
+          {
+            "node": "Dodaj do czarnej listy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wiadomość: odmowa lub później": {
+      "main": [
+        [
+          {
+            "node": "Telegram: odmowa lub później",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Przygotuj mini-analizę": {
+      "main": [
+        [
+          {
+            "node": "AI: mini-analiza i szkic odpowiedzi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: mini-analiza i szkic odpowiedzi": {
+      "main": [
+        [
+          {
+            "node": "Złóż szkic odpowiedzi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Złóż szkic odpowiedzi": {
+      "main": [
+        [
+          {
+            "node": "Gmail: utwórz szkic odpowiedzi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: utwórz szkic odpowiedzi": {
+      "main": [
+        [
+          {
+            "node": "Wiadomość: firma zainteresowana",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wiadomość: firma zainteresowana": {
+      "main": [
+        [
+          {
+            "node": "Telegram: firma zainteresowana",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dodaj do czarnej listy": {
+      "main": [
+        [
+          {
+            "node": "Wiadomość: odmowa lub później",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Oznacz zły adres": {
+      "main": [
+        [
+          {
+            "node": "Zły adres na czarną listę",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zły adres na czarną listę": {
+      "main": [
+        [
+          {
+            "node": "Oznacz wysyłkę jako odbitą",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Oznacz wysyłkę jako odbitą": {
+      "main": [
+        [
+          {
+            "node": "Zapisz zwrot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zapisz zwrot": {
+      "main": [
+        [
+          {
+            "node": "Ostatnie 40 wysyłek",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ostatnie 40 wysyłek": {
+      "main": [
+        [
+          {
+            "node": "Za dużo zwrotów?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Za dużo zwrotów?": {
+      "main": [
+        [
+          {
+            "node": "Wstrzymaj system",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wstrzymaj system": {
+      "main": [
+        [
+          {
+            "node": "Treść alarmu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Treść alarmu": {
+      "main": [
+        [
+          {
+            "node": "Telegram: system zatrzymany",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pn–pt 18:00: raport dnia": {
+      "main": [
+        [
+          {
+            "node": "Raport: dzisiejsze wysyłki",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Raport: dzisiejsze wysyłki": {
+      "main": [
+        [
+          {
+            "node": "Raport: dzisiejsze odpowiedzi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Raport ręcznie": {
+      "main": [
+        [
+          {
+            "node": "Raport: dzisiejsze wysyłki",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Raport: dzisiejsze odpowiedzi": {
+      "main": [
+        [
+          {
+            "node": "Raport: gotowe maile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Raport: gotowe maile": {
+      "main": [
+        [
+          {
+            "node": "Raport: firmy przebadane dziś",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Raport: firmy przebadane dziś": {
+      "main": [
+        [
+          {
+            "node": "Raport: kampanie",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Raport: kampanie": {
+      "main": [
+        [
+          {
+            "node": "Raport: ustawienia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Raport: ustawienia": {
+      "main": [
+        [
+          {
+            "node": "Firecrawl: stan kredytów",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Firecrawl: stan kredytów": {
+      "main": [
+        [
+          {
+            "node": "Złóż raport dnia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Złóż raport dnia": {
+      "main": [
+        [
+          {
+            "node": "Telegram: raport dnia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Niedziela 19:00: wnioski z tygodnia": {
+      "main": [
+        [
+          {
+            "node": "Pierwsze maile z 30 dni",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pierwsze maile z 30 dni": {
+      "main": [
+        [
+          {
+            "node": "Odpowiedzi z 30 dni",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wnioski ręcznie": {
+      "main": [
+        [
+          {
+            "node": "Pierwsze maile z 30 dni",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Odpowiedzi z 30 dni": {
+      "main": [
+        [
+          {
+            "node": "Obecne wnioski",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obecne wnioski": {
+      "main": [
+        [
+          {
+            "node": "Przygotuj analizę tygodnia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Przygotuj analizę tygodnia": {
+      "main": [
+        [
+          {
+            "node": "Jest z czego się uczyć?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jest z czego się uczyć?": {
+      "main": [
+        [
+          {
+            "node": "AI: wnioski z tygodnia",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram: za mało danych",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: wnioski z tygodnia": {
+      "main": [
+        [
+          {
+            "node": "Odczytaj wnioski",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Odczytaj wnioski": {
+      "main": [
+        [
+          {
+            "node": "Zapisz wnioski",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zapisz wnioski": {
+      "main": [
+        [
+          {
+            "node": "Treść wniosków",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Treść wniosków": {
+      "main": [
+        [
+          {
+            "node": "Telegram: wnioski tygodnia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gdy wystąpi błąd": {
+      "main": [
+        [
+          {
+            "node": "Nie spamuj błędami",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nie spamuj błędami": {
+      "main": [
+        [
+          {
+            "node": "Telegram: błąd odpowiedzi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Co 15 min (noc co godz.): sprawdź skrzynkę": {
+      "main": [
+        [
+          {
+            "node": "Gmail: nowe wiadomości",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Warsaw",
+    "executionTimeout": 300,
+    "saveManualExecutions": true
+  },
+  "pinData": {}
+}

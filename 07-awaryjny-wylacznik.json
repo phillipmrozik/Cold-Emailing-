@@ -1,0 +1,283 @@
+{
+  "name": "Cold Mail AI — Awaryjny wyłącznik",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "cold-mail-sterowanie",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "944cd376-3427-45b5-bd13-6a1318e0715a",
+      "name": "Kliknięcie przycisku z Telegrama",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        96
+      ],
+      "webhookId": "b2b5b013-2a63-453e-9f54-e76e783fd948"
+    },
+    {
+      "parameters": {
+        "jsCode": "const KLUCZ = 'TWOJ_KLUCZ_STEROWANIA';\nconst q = $input.first().json.query || {};\nconst akcja = String(q.akcja || '').toLowerCase();\nconst ok = q.klucz === KLUCZ && (akcja === 'stop' || akcja === 'start');\nreturn [{ json: { ok: ok, akcja: akcja, wartosc: akcja === 'stop' ? 'tak' : 'nie' } }];"
+      },
+      "id": "85e1efee-432f-46ac-95ee-96b4fff62b73",
+      "name": "Sprawdź klucz i akcję",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "510d27a8-0073-491f-b9e4-38a93c4c2932",
+      "name": "Prawidłowy przycisk?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        448,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ID_TABELI_cm_ustawienia",
+          "cachedResultName": "cm_ustawienia"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "klucz",
+              "keyValue": "system_wstrzymany"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "wartosc": "={{ $json.wartosc }}"
+          },
+          "schema": [
+            {
+              "id": "wartosc",
+              "displayName": "wartosc",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d5ee66c7-82b7-4807-92e2-68cd3d296b5f",
+      "name": "Zapisz stan systemu",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        0
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "chatId": "TWOJ_TELEGRAM_CHAT_ID",
+        "text": "={{ $('Sprawdź klucz i akcję').first().json.akcja === 'stop' ? '⏸️ Cały system cold mailingu jest WSTRZYMANY. Nic nie jest wysyłane ani sprawdzane. Gdy problem zniknie, kliknij „Włącz z powrotem” albo zrób to w panelu.' : '▶️ System cold mailingu działa z powrotem. Wysyłka ruszy w najbliższym oknie (pn–pt 6:00–15:00).' }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{ $('Sprawdź klucz i akcję').first().json.akcja === 'stop' ? '▶️ Włącz z powrotem' : '⏸️ Wyłącz wszystko' }}",
+                    "additionalFields": {
+                      "url": "={{ 'https://TWOJA-INSTANCJA.app.n8n.cloud/webhook/cold-mail-sterowanie?akcja=' + ($('Sprawdź klucz i akcję').first().json.akcja === 'stop' ? 'start' : 'stop') + '&klucz=TWOJ_KLUCZ_STEROWANIA' }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "d2a47bd1-2c06-4406-adcc-a32424fb4481",
+      "name": "Telegram: potwierdzenie",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        896,
+        0
+      ],
+      "webhookId": "4b84108a-2292-4e73-9cf8-f83a422a0fc6",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Pain Radar Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ '<!DOCTYPE html><html lang=\"pl\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Cold Mail AI</title></head><body style=\"font-family:Segoe UI,Arial,sans-serif;background:#f3f5f9;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0\"><div style=\"background:#fff;border-radius:14px;padding:28px 32px;max-width:420px;box-shadow:0 6px 24px rgba(15,20,51,.08);text-align:center\"><div style=\"font-size:42px\">' + ($('Sprawdź klucz i akcję').first().json.akcja === 'stop' ? '⏸️' : '▶️') + '</div><h2 style=\"color:#0f1433\">' + ($('Sprawdź klucz i akcję').first().json.akcja === 'stop' ? 'System wstrzymany' : 'System działa') + '</h2><p style=\"color:#445\">' + ($('Sprawdź klucz i akcję').first().json.akcja === 'stop' ? 'Szukanie firm, research i wysyłka maili są zatrzymane.' : 'Szukanie firm, research i wysyłka maili ruszają z powrotem.') + ' Możesz zamknąć tę stronę.</p></div></body></html>' }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "id": "884c0466-0032-416c-bcb3-308b8f5a1f92",
+      "name": "Pokaż potwierdzenie",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1120,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "Nieprawidłowy link.",
+        "options": {
+          "responseCode": 403
+        }
+      },
+      "id": "149f8f2a-f7ca-4f6e-9aa5-196511892c50",
+      "name": "Nieprawidłowy link",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🛑 Awaryjny wyłącznik\nKażdy alert z systemu na Telegramie ma przycisk „Wyłącz wszystko”. Kliknięcie otwiera ten link, system zapisuje stan „wstrzymany” i wszystkie workflowy (szukanie, research, wysyłka) przestają działać. Przycisk „Włącz z powrotem” odwraca zmianę. Link działa tylko z tajnym kluczem.",
+        "height": 176,
+        "width": 368,
+        "color": 3
+      },
+      "id": "a6f063a0-fa5c-4594-9c7a-84e39c8a6aff",
+      "name": "Sticky Note 8c8e3290",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        496,
+        384
+      ]
+    }
+  ],
+  "connections": {
+    "Kliknięcie przycisku z Telegrama": {
+      "main": [
+        [
+          {
+            "node": "Sprawdź klucz i akcję",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sprawdź klucz i akcję": {
+      "main": [
+        [
+          {
+            "node": "Prawidłowy przycisk?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prawidłowy przycisk?": {
+      "main": [
+        [
+          {
+            "node": "Zapisz stan systemu",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Nieprawidłowy link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zapisz stan systemu": {
+      "main": [
+        [
+          {
+            "node": "Telegram: potwierdzenie",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram: potwierdzenie": {
+      "main": [
+        [
+          {
+            "node": "Pokaż potwierdzenie",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Warsaw"
+  },
+  "pinData": {}
+}
